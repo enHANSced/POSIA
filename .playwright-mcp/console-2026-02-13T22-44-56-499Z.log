@@ -1,0 +1,2 @@
+[  231093ms] [WARNING] [Vue warn]: [Vuetify UPGRADE] 'theme.global.name.value = dark' is deprecated, use 'theme.change('dark')' instead. @ http://localhost:5173/node_modules/.vite/deps/chunk-DAESH65R.js?v=82af3722:2196
+[  242065ms] [WARNING] [Vue warn]: [Vuetify UPGRADE] 'theme.global.name.value = light' is deprecated, use 'theme.change('light')' instead. @ http://localhost:5173/node_modules/.vite/deps/chunk-DAESH65R.js?v=82af3722:2196

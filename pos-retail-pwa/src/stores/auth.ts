@@ -4,6 +4,26 @@ import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/services/supabase'
 import type { UserProfile } from '@/types/supabase'
 
+// Mapeo de errores de Supabase a mensajes amigables en español
+function translateAuthError(msg: string): string {
+  const errorMap: Record<string, string> = {
+    'email rate limit exceeded': 'Se excedió el límite de correos. Esperá unos minutos e intentá de nuevo.',
+    'rate limit exceeded': 'Demasiados intentos. Esperá unos minutos e intentá de nuevo.',
+    'invalid login credentials': 'Correo o contraseña incorrectos.',
+    'email not confirmed': 'Tu correo no ha sido verificado. Revisá tu bandeja de entrada.',
+    'user already registered': 'Este correo ya está registrado. Intentá iniciar sesión.',
+    'signup is disabled': 'El registro de nuevos usuarios está deshabilitado.',
+    'password should be at least 6 characters': 'La contraseña debe tener al menos 6 caracteres.',
+    'user not found': 'No se encontró un usuario con ese correo.',
+    'new password should be different from the old password': 'La nueva contraseña debe ser diferente a la anterior.',
+  }
+  const lower = msg.toLowerCase()
+  for (const [key, value] of Object.entries(errorMap)) {
+    if (lower.includes(key)) return value
+  }
+  return msg
+}
+
 export const useAuthStore = defineStore('auth', () => {
   // Estado
   const user = ref<User | null>(null)
@@ -100,7 +120,8 @@ export const useAuthStore = defineStore('auth', () => {
 
       return { success: true }
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Error de inicio de sesión'
+      const raw = err instanceof Error ? err.message : 'Error de inicio de sesión'
+      error.value = translateAuthError(raw)
       return { success: false, error: error.value }
     } finally {
       loading.value = false
@@ -119,21 +140,34 @@ export const useAuthStore = defineStore('auth', () => {
           data: {
             full_name: fullName,
             role: role
-          }
+          },
+          emailRedirectTo: `${window.location.origin}/auth/callback`
         }
       })
 
       if (err) throw err
 
+      // Si Supabase devuelve sesión, el usuario fue auto-confirmado
+      const autoConfirmed = !!data.session
+      if (autoConfirmed) {
+        session.value = data.session
+        user.value = data.user
+        await fetchProfile()
+      }
+
       return { 
         success: true, 
         user: data.user,
+        autoConfirmed,
         message: data.user?.identities?.length === 0 
           ? 'Usuario ya registrado' 
-          : 'Revisa tu correo para confirmar'
+          : autoConfirmed
+            ? 'Cuenta creada exitosamente'
+            : 'Revisa tu correo para confirmar'
       }
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Error de registro'
+      const raw = err instanceof Error ? err.message : 'Error de registro'
+      error.value = translateAuthError(raw)
       return { success: false, error: error.value }
     } finally {
       loading.value = false
@@ -187,7 +221,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function resetPassword(email: string) {
     try {
       const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`
+        redirectTo: `${window.location.origin}/auth/callback`
       })
 
       if (err) throw err

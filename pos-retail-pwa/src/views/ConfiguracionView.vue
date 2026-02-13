@@ -27,8 +27,9 @@ const showPassword = ref(false)
 const isDarkMode = computed({
   get: () => theme.global.current.value.dark,
   set: (value) => {
-    theme.global.name.value = value ? 'dark' : 'light'
-    localStorage.setItem('theme', value ? 'dark' : 'light')
+    const themeName = value ? 'dark' : 'light'
+    theme.change(themeName)
+    localStorage.setItem('theme', themeName)
   }
 })
 
@@ -42,7 +43,7 @@ onMounted(() => {
   // Cargar tema guardado
   const savedTheme = localStorage.getItem('theme')
   if (savedTheme) {
-    theme.global.name.value = savedTheme
+    theme.change(savedTheme)
   }
 })
 

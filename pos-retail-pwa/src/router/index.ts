@@ -45,6 +45,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/auth/callback',
+      name: 'auth-callback',
+      component: () => import('@/views/AuthCallbackView.vue'),
+      meta: { isCallback: true }
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       redirect: '/pos'
@@ -63,6 +69,11 @@ router.beforeEach(async (to, _from, next) => {
 
   const isAuthenticated = authStore.isAuthenticated
   const isAdmin = authStore.isAdmin
+
+  // Permitir acceso a la ruta de callback de auth sin autenticación
+  if (to.meta.isCallback) {
+    return next()
+  }
 
   // Rutas que requieren autenticación
   if (to.meta.requiresAuth && !isAuthenticated) {

@@ -1,10 +1,19 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
+
+// Redirigir si el usuario ya está autenticado (ej: auto-confirmación)
+watch(() => authStore.isAuthenticated, (isAuth) => {
+  if (isAuth) {
+    const redirect = (route.query.redirect as string) || '/pos'
+    router.replace(redirect)
+  }
+}, { immediate: true })
 
 const tab = ref<'login' | 'register'>('login')
 const showPassword = ref(false)
@@ -24,6 +33,7 @@ const registerName = ref('')
 const showForgotPassword = ref(false)
 const forgotEmail = ref('')
 const forgotMessage = ref('')
+const showRegistrationSuccess = ref(false)
 
 // Reglas de validación
 const emailRules = [
@@ -66,9 +76,16 @@ async function handleRegister() {
   )
 
   if (result.success) {
-    // Mostrar mensaje de confirmación
-    tab.value = 'login'
-    loginEmail.value = registerEmail.value
+    if (result.autoConfirmed) {
+      // Usuario auto-confirmado — redirigir al POS
+      const redirect = (route.query.redirect as string) || '/pos'
+      router.replace(redirect)
+    } else {
+      // Necesita confirmación por email
+      tab.value = 'login'
+      loginEmail.value = registerEmail.value
+      showRegistrationSuccess.value = true
+    }
   }
 }
 
@@ -256,6 +273,22 @@ async function handleForgotPassword() {
               </v-card-text>
             </v-window-item>
           </v-window>
+
+          <!-- Mensaje de registro exitoso -->
+          <v-alert
+            v-if="showRegistrationSuccess"
+            type="info"
+            variant="tonal"
+            class="mx-4 mb-3"
+            closable
+            @click:close="showRegistrationSuccess = false"
+          >
+            <div class="text-subtitle-2 font-weight-bold">¡Registro exitoso!</div>
+            <div class="text-caption">
+              Revisa tu correo electrónico y haz clic en el enlace de verificación.
+              <strong>El servidor de desarrollo debe estar corriendo</strong> para completar la verificación.
+            </div>
+          </v-alert>
 
           <!-- Footer -->
           <div class="text-center text-caption pa-4 neo-card-pressed mx-4 mb-4">

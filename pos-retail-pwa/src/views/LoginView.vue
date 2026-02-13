@@ -90,32 +90,38 @@ async function handleForgotPassword() {
 </script>
 
 <template>
-  <v-container fluid class="fill-height bg-background">
+  <v-container fluid class="fill-height neo-bg">
     <v-row align="center" justify="center">
       <v-col cols="12" sm="8" md="5" lg="4">
-        <v-card class="elevation-12 rounded-lg">
-          <!-- Header -->
-          <v-card-title class="pa-6 bg-primary">
-            <div class="d-flex align-center justify-center w-100">
-              <v-icon size="40" class="mr-3">mdi-point-of-sale</v-icon>
-              <div>
-                <h1 class="text-h5 font-weight-bold">POS Retail</h1>
-                <p class="text-caption ma-0 opacity-80">Sistema con Inteligencia Artificial</p>
-              </div>
+        <v-card class="neo-animate-in pa-0 overflow-hidden">
+          <!-- Header neomórfico -->
+          <div class="neo-login-header text-center pa-8">
+            <div class="neo-circle mx-auto mb-4" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
+              <v-icon size="28" color="white">mdi-point-of-sale</v-icon>
             </div>
-          </v-card-title>
+            <h1 class="text-h5 font-weight-bold">POS Retail</h1>
+            <p class="text-caption text-medium-emphasis mt-1">Sistema con Inteligencia Artificial</p>
+          </div>
 
-          <!-- Tabs -->
-          <v-tabs v-model="tab" grow bg-color="primary-darken-1">
-            <v-tab value="login">
-              <v-icon start>mdi-login</v-icon>
-              Iniciar Sesión
-            </v-tab>
-            <v-tab value="register">
-              <v-icon start>mdi-account-plus</v-icon>
-              Registrarse
-            </v-tab>
-          </v-tabs>
+          <!-- Tabs neomórficas -->
+          <div class="d-flex justify-center px-6 py-3">
+            <div class="neo-tab-group d-flex">
+              <button
+                :class="['neo-tab', { 'neo-tab-active': tab === 'login' }]"
+                @click="tab = 'login'"
+              >
+                <v-icon start size="18">mdi-login</v-icon>
+                Iniciar Sesión
+              </button>
+              <button
+                :class="['neo-tab', { 'neo-tab-active': tab === 'register' }]"
+                @click="tab = 'register'"
+              >
+                <v-icon start size="18">mdi-account-plus</v-icon>
+                Registrarse
+              </button>
+            </div>
+          </div>
 
           <v-window v-model="tab">
             <!-- Login Tab -->
@@ -127,8 +133,7 @@ async function handleForgotPassword() {
                     label="Correo electrónico"
                     type="email"
                     :rules="emailRules"
-                    prepend-inner-icon="mdi-email"
-                    variant="outlined"
+                    prepend-inner-icon="mdi-email-outline"
                     class="mb-3"
                     autocomplete="email"
                   />
@@ -138,10 +143,9 @@ async function handleForgotPassword() {
                     label="Contraseña"
                     :type="showPassword ? 'text' : 'password'"
                     :rules="passwordRules"
-                    prepend-inner-icon="mdi-lock"
+                    prepend-inner-icon="mdi-lock-outline"
                     :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
                     @click:append-inner="showPassword = !showPassword"
-                    variant="outlined"
                     class="mb-2"
                     autocomplete="current-password"
                   />
@@ -160,7 +164,6 @@ async function handleForgotPassword() {
                   <v-alert
                     v-if="authStore.error"
                     type="error"
-                    variant="tonal"
                     class="mb-4"
                     closable
                   >
@@ -174,6 +177,7 @@ async function handleForgotPassword() {
                     block
                     :loading="authStore.loading"
                     :disabled="!formValid"
+                    class="neo-btn-primary"
                   >
                     <v-icon start>mdi-login</v-icon>
                     Iniciar Sesión
@@ -190,8 +194,7 @@ async function handleForgotPassword() {
                     v-model="registerName"
                     label="Nombre completo"
                     :rules="nameRules"
-                    prepend-inner-icon="mdi-account"
-                    variant="outlined"
+                    prepend-inner-icon="mdi-account-outline"
                     class="mb-3"
                     autocomplete="name"
                   />
@@ -201,8 +204,7 @@ async function handleForgotPassword() {
                     label="Correo electrónico"
                     type="email"
                     :rules="emailRules"
-                    prepend-inner-icon="mdi-email"
-                    variant="outlined"
+                    prepend-inner-icon="mdi-email-outline"
                     class="mb-3"
                     autocomplete="email"
                   />
@@ -212,10 +214,9 @@ async function handleForgotPassword() {
                     label="Contraseña"
                     :type="showPassword ? 'text' : 'password'"
                     :rules="passwordRules"
-                    prepend-inner-icon="mdi-lock"
+                    prepend-inner-icon="mdi-lock-outline"
                     :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
                     @click:append-inner="showPassword = !showPassword"
-                    variant="outlined"
                     class="mb-3"
                     autocomplete="new-password"
                   />
@@ -225,8 +226,7 @@ async function handleForgotPassword() {
                     label="Confirmar contraseña"
                     :type="showPassword ? 'text' : 'password'"
                     :rules="confirmPasswordRules"
-                    prepend-inner-icon="mdi-lock-check"
-                    variant="outlined"
+                    prepend-inner-icon="mdi-lock-check-outline"
                     class="mb-4"
                     autocomplete="new-password"
                   />
@@ -234,7 +234,6 @@ async function handleForgotPassword() {
                   <v-alert
                     v-if="authStore.error"
                     type="error"
-                    variant="tonal"
                     class="mb-4"
                     closable
                   >
@@ -248,6 +247,7 @@ async function handleForgotPassword() {
                     block
                     :loading="authStore.loading"
                     :disabled="!formValid"
+                    class="neo-btn-primary"
                   >
                     <v-icon start>mdi-account-plus</v-icon>
                     Crear Cuenta
@@ -258,39 +258,41 @@ async function handleForgotPassword() {
           </v-window>
 
           <!-- Footer -->
-          <v-card-text class="text-center text-caption pa-4 bg-grey-lighten-4">
-            <v-icon size="small" class="mr-1">mdi-shield-check</v-icon>
+          <div class="text-center text-caption pa-4 neo-card-pressed mx-4 mb-4">
+            <v-icon size="small" class="mr-1" color="success">mdi-shield-check</v-icon>
             Conexión segura con Supabase
-          </v-card-text>
+          </div>
         </v-card>
 
         <!-- Forgot Password Dialog -->
         <v-dialog v-model="showForgotPassword" max-width="400">
           <v-card>
-            <v-card-title class="bg-primary pa-4">
-              <v-icon start>mdi-lock-reset</v-icon>
-              Restablecer Contraseña
-            </v-card-title>
-            <v-card-text class="pa-6">
-              <p class="mb-4">Ingresa tu correo y te enviaremos instrucciones para restablecer tu contraseña.</p>
+            <div class="pa-6 text-center">
+              <div class="neo-circle mx-auto mb-3" style="background: linear-gradient(135deg, #FFA726, #FFB74D);">
+                <v-icon color="white" size="28">mdi-lock-reset</v-icon>
+              </div>
+              <h3 class="text-h6 mb-1">Restablecer Contraseña</h3>
+              <p class="text-caption text-medium-emphasis mb-4">
+                Ingresa tu correo y te enviaremos instrucciones.
+              </p>
+            </div>
+            <v-card-text class="px-6 pb-2">
               <v-text-field
                 v-model="forgotEmail"
                 label="Correo electrónico"
                 type="email"
                 :rules="emailRules"
-                prepend-inner-icon="mdi-email"
-                variant="outlined"
+                prepend-inner-icon="mdi-email-outline"
               />
               <v-alert
                 v-if="forgotMessage"
                 :type="forgotMessage.includes('Error') ? 'error' : 'success'"
-                variant="tonal"
-                class="mt-4"
+                class="mt-3"
               >
                 {{ forgotMessage }}
               </v-alert>
             </v-card-text>
-            <v-card-actions class="pa-4 pt-0">
+            <v-card-actions class="pa-6 pt-2">
               <v-spacer />
               <v-btn variant="text" @click="showForgotPassword = false">Cancelar</v-btn>
               <v-btn
@@ -311,5 +313,47 @@ async function handleForgotPassword() {
 <style scoped>
 .fill-height {
   min-height: 100vh;
+}
+
+.neo-login-header {
+  background-color: var(--neo-bg);
+}
+
+.neo-tab-group {
+  background-color: var(--neo-bg-alt);
+  box-shadow: var(--neo-pressed-sm);
+  border-radius: var(--neo-radius-sm);
+  padding: 4px;
+  gap: 4px;
+}
+
+.neo-tab {
+  padding: 8px 20px;
+  border-radius: var(--neo-radius-xs);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--neo-shadow-dark-strong);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: var(--neo-transition);
+}
+
+.neo-tab:hover {
+  color: rgb(var(--v-theme-primary));
+}
+
+.neo-tab-active {
+  box-shadow: var(--neo-raised-sm);
+  background-color: var(--neo-bg) !important;
+  color: rgb(var(--v-theme-primary));
+  font-weight: 600;
+}
+
+.neo-btn-primary {
+  font-weight: 600 !important;
+  letter-spacing: 0.5px !important;
 }
 </style>

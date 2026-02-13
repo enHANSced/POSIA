@@ -119,28 +119,29 @@ function getCategoryName(categoryId: string | null): string {
 </script>
 
 <template>
-  <v-container fluid class="pa-4">
-    <v-card>
-      <v-card-title class="d-flex align-center">
-        <v-icon start>mdi-package-variant-closed</v-icon>
-        Gestión de Productos
-        <v-spacer />
-        <v-btn color="primary" @click="openNewForm">
-          <v-icon start>mdi-plus</v-icon>
-          Nuevo Producto
-        </v-btn>
-      </v-card-title>
+  <v-container fluid class="pa-4 pa-md-6">
+    <v-card class="neo-animate-in">
+      <v-card-text class="pa-5">
+        <!-- Header -->
+        <div class="d-flex align-center mb-5">
+          <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #FF7043, #FF8A65);">
+            <v-icon color="white" size="20">mdi-package-variant-closed</v-icon>
+          </div>
+          <h2 class="text-h6 font-weight-bold">Gestión de Productos</h2>
+          <v-spacer />
+          <v-btn color="primary" @click="openNewForm">
+            <v-icon start>mdi-plus</v-icon>
+            Nuevo Producto
+          </v-btn>
+        </div>
 
-      <v-card-text>
         <!-- Búsqueda -->
         <v-text-field
           v-model="searchQuery"
           label="Buscar producto"
           prepend-inner-icon="mdi-magnify"
-          variant="outlined"
-          density="compact"
           clearable
-          class="mb-4"
+          class="mb-5"
         />
 
         <!-- Tabla de productos -->
@@ -158,49 +159,57 @@ function getCategoryName(categoryId: string | null): string {
           :items="productosFiltrados"
           :loading="productosStore.loading"
           item-value="id"
-          density="comfortable"
         >
           <template #item.price="{ item }">
-            ${{ item.price.toFixed(2) }}
+            <span class="font-weight-bold text-primary">L {{ item.price.toFixed(2) }}</span>
           </template>
 
           <template #item.category_id="{ item }">
-            {{ getCategoryName(item.category_id) }}
+            <v-chip variant="tonal" size="small">
+              {{ getCategoryName(item.category_id) }}
+            </v-chip>
           </template>
 
           <template #item.stock="{ item }">
             <v-chip
               :color="(item.stock || 0) > (item.min_stock || 5) ? 'success' : 'warning'"
               size="small"
+              variant="tonal"
             >
               {{ item.stock || 0 }}
             </v-chip>
           </template>
 
           <template #item.active="{ item }">
-            <v-icon :color="item.active ? 'success' : 'grey'">
+            <v-icon :color="item.active ? 'success' : 'grey'" size="20">
               {{ item.active ? 'mdi-check-circle' : 'mdi-close-circle' }}
             </v-icon>
           </template>
 
           <template #item.actions="{ item }">
             <v-btn icon size="small" variant="text" @click="editProduct(item)">
-              <v-icon>mdi-pencil</v-icon>
+              <v-icon size="18">mdi-pencil-outline</v-icon>
             </v-btn>
           </template>
         </v-data-table>
       </v-card-text>
     </v-card>
 
-    <!-- Diálogo de formulario -->
+    <!-- Diálogo de formulario neomórfico -->
     <v-dialog v-model="showForm" max-width="600" persistent>
       <v-card>
-        <v-card-title class="bg-primary pa-4">
-          <v-icon start>{{ editingProduct ? 'mdi-pencil' : 'mdi-plus' }}</v-icon>
-          {{ editingProduct ? 'Editar Producto' : 'Nuevo Producto' }}
-        </v-card-title>
+        <div class="pa-6 d-flex align-center">
+          <div class="neo-circle-sm mr-3" :style="editingProduct
+            ? 'background: linear-gradient(135deg, #FFA726, #FFB74D);'
+            : 'background: linear-gradient(135deg, #4A7BF7, #6B93FF);'">
+            <v-icon color="white" size="20">{{ editingProduct ? 'mdi-pencil' : 'mdi-plus' }}</v-icon>
+          </div>
+          <h3 class="text-h6 font-weight-bold">
+            {{ editingProduct ? 'Editar Producto' : 'Nuevo Producto' }}
+          </h3>
+        </div>
 
-        <v-card-text class="pa-6">
+        <v-card-text class="px-6 pb-2">
           <v-form v-model="formValid">
             <v-row>
               <v-col cols="12">
@@ -208,7 +217,6 @@ function getCategoryName(categoryId: string | null): string {
                   v-model="form.name"
                   label="Nombre del producto *"
                   :rules="[v => !!v || 'Requerido']"
-                  variant="outlined"
                 />
               </v-col>
 
@@ -216,7 +224,6 @@ function getCategoryName(categoryId: string | null): string {
                 <v-text-field
                   v-model="form.barcode"
                   label="Código de barras"
-                  variant="outlined"
                 />
               </v-col>
 
@@ -224,7 +231,6 @@ function getCategoryName(categoryId: string | null): string {
                 <v-text-field
                   v-model="form.sku"
                   label="SKU"
-                  variant="outlined"
                 />
               </v-col>
 
@@ -235,7 +241,6 @@ function getCategoryName(categoryId: string | null): string {
                   item-title="name"
                   item-value="id"
                   label="Categoría"
-                  variant="outlined"
                   clearable
                 />
               </v-col>
@@ -245,9 +250,8 @@ function getCategoryName(categoryId: string | null): string {
                   v-model.number="form.price"
                   label="Precio de venta *"
                   type="number"
-                  prefix="$"
+                  prefix="L"
                   :rules="[v => v > 0 || 'Debe ser mayor a 0']"
-                  variant="outlined"
                 />
               </v-col>
 
@@ -256,8 +260,7 @@ function getCategoryName(categoryId: string | null): string {
                   v-model.number="form.cost"
                   label="Costo"
                   type="number"
-                  prefix="$"
-                  variant="outlined"
+                  prefix="L"
                 />
               </v-col>
 
@@ -266,7 +269,6 @@ function getCategoryName(categoryId: string | null): string {
                   v-model.number="form.stock"
                   label="Stock actual"
                   type="number"
-                  variant="outlined"
                 />
               </v-col>
 
@@ -275,17 +277,15 @@ function getCategoryName(categoryId: string | null): string {
                   v-model.number="form.min_stock"
                   label="Stock mínimo"
                   type="number"
-                  variant="outlined"
                 />
               </v-col>
 
               <v-col cols="4">
                 <v-text-field
                   v-model.number="form.tax_rate"
-                  label="IVA %"
+                  label="ISV %"
                   type="number"
                   suffix="%"
-                  variant="outlined"
                 />
               </v-col>
 
@@ -293,7 +293,6 @@ function getCategoryName(categoryId: string | null): string {
                 <v-textarea
                   v-model="form.description"
                   label="Descripción"
-                  variant="outlined"
                   rows="3"
                 />
               </v-col>
@@ -303,13 +302,14 @@ function getCategoryName(categoryId: string | null): string {
                   v-model="form.active"
                   label="Producto activo"
                   color="primary"
+                  inset
                 />
               </v-col>
             </v-row>
           </v-form>
         </v-card-text>
 
-        <v-card-actions class="pa-4 pt-0">
+        <v-card-actions class="pa-6 pt-2">
           <v-spacer />
           <v-btn variant="text" @click="showForm = false">Cancelar</v-btn>
           <v-btn
@@ -318,6 +318,7 @@ function getCategoryName(categoryId: string | null): string {
             :disabled="!formValid"
             @click="saveProduct"
           >
+            <v-icon start>mdi-content-save</v-icon>
             Guardar
           </v-btn>
         </v-card-actions>

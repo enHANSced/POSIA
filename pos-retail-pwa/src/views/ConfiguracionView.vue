@@ -103,31 +103,31 @@ async function changePassword() {
 </script>
 
 <template>
-  <v-container fluid class="pa-4">
+  <v-container fluid class="pa-4 pa-md-6">
     <v-row>
       <v-col cols="12" md="6">
         <!-- Perfil -->
-        <v-card class="mb-4">
-          <v-card-title>
-            <v-icon start>mdi-account</v-icon>
-            Mi Perfil
-          </v-card-title>
+        <v-card class="mb-5 neo-animate-in">
+          <v-card-text class="pa-5">
+            <div class="d-flex align-center mb-5">
+              <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
+                <v-icon color="white" size="20">mdi-account</v-icon>
+              </div>
+              <h3 class="text-subtitle-1 font-weight-bold">Mi Perfil</h3>
+            </div>
 
-          <v-card-text>
             <v-form @submit.prevent="saveProfile">
               <v-text-field
                 v-model="profileForm.full_name"
                 label="Nombre completo"
-                prepend-inner-icon="mdi-account"
-                variant="outlined"
+                prepend-inner-icon="mdi-account-outline"
                 class="mb-3"
               />
 
               <v-text-field
                 :model-value="authStore.user?.email"
                 label="Correo electrónico"
-                prepend-inner-icon="mdi-email"
-                variant="outlined"
+                prepend-inner-icon="mdi-email-outline"
                 disabled
                 class="mb-3"
               />
@@ -135,12 +135,11 @@ async function changePassword() {
               <v-text-field
                 v-model="profileForm.phone"
                 label="Teléfono"
-                prepend-inner-icon="mdi-phone"
-                variant="outlined"
-                class="mb-3"
+                prepend-inner-icon="mdi-phone-outline"
+                class="mb-4"
               />
 
-              <v-chip class="mb-4" :color="authStore.isAdmin ? 'primary' : 'secondary'">
+              <v-chip class="mb-5" :color="authStore.isAdmin ? 'primary' : 'secondary'" variant="tonal">
                 <v-icon start>mdi-shield-account</v-icon>
                 Rol: {{ authStore.userRole }}
               </v-chip>
@@ -159,22 +158,23 @@ async function changePassword() {
         </v-card>
 
         <!-- Cambiar contraseña -->
-        <v-card>
-          <v-card-title>
-            <v-icon start>mdi-lock</v-icon>
-            Cambiar Contraseña
-          </v-card-title>
+        <v-card class="neo-animate-in">
+          <v-card-text class="pa-5">
+            <div class="d-flex align-center mb-5">
+              <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #FFA726, #FFB74D);">
+                <v-icon color="white" size="20">mdi-lock</v-icon>
+              </div>
+              <h3 class="text-subtitle-1 font-weight-bold">Cambiar Contraseña</h3>
+            </div>
 
-          <v-card-text>
             <v-form @submit.prevent="changePassword">
               <v-text-field
                 v-model="passwordForm.newPassword"
                 label="Nueva contraseña"
                 :type="showPassword ? 'text' : 'password'"
-                prepend-inner-icon="mdi-lock"
+                prepend-inner-icon="mdi-lock-outline"
                 :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
                 @click:append-inner="showPassword = !showPassword"
-                variant="outlined"
                 class="mb-3"
                 :rules="[v => v.length >= 6 || 'Mínimo 6 caracteres']"
               />
@@ -183,8 +183,7 @@ async function changePassword() {
                 v-model="passwordForm.confirmPassword"
                 label="Confirmar contraseña"
                 :type="showPassword ? 'text' : 'password'"
-                prepend-inner-icon="mdi-lock-check"
-                variant="outlined"
+                prepend-inner-icon="mdi-lock-check-outline"
                 class="mb-4"
                 :rules="[v => v === passwordForm.newPassword || 'No coinciden']"
               />
@@ -206,60 +205,75 @@ async function changePassword() {
 
       <v-col cols="12" md="6">
         <!-- Preferencias -->
-        <v-card class="mb-4">
-          <v-card-title>
-            <v-icon start>mdi-cog</v-icon>
-            Preferencias
-          </v-card-title>
+        <v-card class="mb-5 neo-animate-in">
+          <v-card-text class="pa-5">
+            <div class="d-flex align-center mb-5">
+              <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #AB47BC, #CE93D8);">
+                <v-icon color="white" size="20">mdi-cog</v-icon>
+              </div>
+              <h3 class="text-subtitle-1 font-weight-bold">Preferencias</h3>
+            </div>
 
-          <v-card-text>
-            <v-switch
-              v-model="isDarkMode"
-              label="Modo oscuro"
-              color="primary"
-              inset
-            >
-              <template #prepend>
-                <v-icon>{{ isDarkMode ? 'mdi-weather-night' : 'mdi-weather-sunny' }}</v-icon>
-              </template>
-            </v-switch>
+            <div class="neo-card-pressed pa-4 d-flex align-center justify-space-between">
+              <div class="d-flex align-center">
+                <v-icon class="mr-3" size="22">
+                  {{ isDarkMode ? 'mdi-weather-night' : 'mdi-weather-sunny' }}
+                </v-icon>
+                <span class="text-body-2 font-weight-medium">Modo oscuro</span>
+              </div>
+              <v-switch
+                v-model="isDarkMode"
+                color="primary"
+                inset
+                hide-details
+              />
+            </div>
           </v-card-text>
         </v-card>
 
         <!-- Info del sistema -->
-        <v-card>
-          <v-card-title>
-            <v-icon start>mdi-information</v-icon>
-            Información del Sistema
-          </v-card-title>
+        <v-card class="neo-animate-in">
+          <v-card-text class="pa-5">
+            <div class="d-flex align-center mb-5">
+              <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #42A5F5, #64B5F6);">
+                <v-icon color="white" size="20">mdi-information</v-icon>
+              </div>
+              <h3 class="text-subtitle-1 font-weight-bold">Información del Sistema</h3>
+            </div>
 
-          <v-card-text>
             <v-list density="compact">
-              <v-list-item>
-                <v-list-item-title>Versión</v-list-item-title>
+              <v-list-item rounded="lg" class="mb-1">
+                <v-list-item-title class="text-body-2">Versión</v-list-item-title>
                 <template #append>
-                  <span class="text-grey">1.0.0</span>
+                  <span class="text-caption text-medium-emphasis">1.0.0</span>
                 </template>
               </v-list-item>
 
-              <v-list-item>
-                <v-list-item-title>Backend</v-list-item-title>
+              <v-list-item rounded="lg" class="mb-1">
+                <v-list-item-title class="text-body-2">Backend</v-list-item-title>
                 <template #append>
-                  <v-chip size="small" color="success">Supabase</v-chip>
+                  <v-chip size="small" color="success" variant="tonal">Supabase</v-chip>
                 </template>
               </v-list-item>
 
-              <v-list-item>
-                <v-list-item-title>PWA</v-list-item-title>
+              <v-list-item rounded="lg" class="mb-1">
+                <v-list-item-title class="text-body-2">PWA</v-list-item-title>
                 <template #append>
-                  <v-chip size="small" color="primary">Activo</v-chip>
+                  <v-chip size="small" color="primary" variant="tonal">Activo</v-chip>
                 </template>
               </v-list-item>
 
-              <v-list-item>
-                <v-list-item-title>IA</v-list-item-title>
+              <v-list-item rounded="lg" class="mb-1">
+                <v-list-item-title class="text-body-2">IA</v-list-item-title>
                 <template #append>
-                  <v-chip size="small" color="info">Gemini</v-chip>
+                  <v-chip size="small" color="info" variant="tonal">Gemini</v-chip>
+                </template>
+              </v-list-item>
+
+              <v-list-item rounded="lg">
+                <v-list-item-title class="text-body-2">Moneda</v-list-item-title>
+                <template #append>
+                  <v-chip size="small" variant="tonal">HNL (L)</v-chip>
                 </template>
               </v-list-item>
             </v-list>
@@ -273,6 +287,7 @@ async function changePassword() {
       v-model="message"
       :color="messageType"
       :timeout="3000"
+      location="bottom right"
     >
       {{ message }}
     </v-snackbar>

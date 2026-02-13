@@ -103,91 +103,109 @@ async function loadTopProducts() {
 </script>
 
 <template>
-  <v-container fluid class="pa-4">
-    <!-- Selector de rango -->
-    <v-row class="mb-4">
+  <v-container fluid class="pa-4 pa-md-6">
+    <!-- Selector de rango neomórfico -->
+    <v-row class="mb-5">
       <v-col cols="12">
-        <v-card>
-          <v-card-text class="d-flex align-center">
-            <v-icon start>mdi-chart-bar</v-icon>
-            <span class="text-h6 mr-4">Reportes</span>
-            <v-btn-toggle v-model="dateRange" mandatory @update:model-value="loadStats">
-              <v-btn value="today">Hoy</v-btn>
-              <v-btn value="week">7 días</v-btn>
-              <v-btn value="month">30 días</v-btn>
-            </v-btn-toggle>
+        <v-card class="neo-animate-in">
+          <v-card-text class="d-flex align-center pa-5">
+            <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #42A5F5, #64B5F6);">
+              <v-icon color="white" size="20">mdi-chart-bar</v-icon>
+            </div>
+            <span class="text-h6 font-weight-bold mr-6">Reportes</span>
+            <div class="neo-tab-group d-flex">
+              <button
+                :class="['neo-tab-btn', { 'neo-tab-btn-active': dateRange === 'today' }]"
+                @click="dateRange = 'today'; loadStats()"
+              >Hoy</button>
+              <button
+                :class="['neo-tab-btn', { 'neo-tab-btn-active': dateRange === 'week' }]"
+                @click="dateRange = 'week'; loadStats()"
+              >7 días</button>
+              <button
+                :class="['neo-tab-btn', { 'neo-tab-btn-active': dateRange === 'month' }]"
+                @click="dateRange = 'month'; loadStats()"
+              >30 días</button>
+            </div>
           </v-card-text>
         </v-card>
       </v-col>
     </v-row>
 
-    <!-- Cards de estadísticas -->
+    <!-- Cards de estadísticas neomórficas -->
+    <v-row class="mb-5">
+      <v-col cols="12" sm="6" md="3">
+        <div class="neo-stat-card neo-animate-in">
+          <div class="neo-stat-icon">
+            <v-icon color="primary" size="24">mdi-cart</v-icon>
+          </div>
+          <h3 class="text-h4 font-weight-bold mt-2">{{ stats.totalSales }}</h3>
+          <p class="text-body-2 text-medium-emphasis">Ventas</p>
+          <div class="neo-stat-bar" style="--bar-color: #4A7BF7;"></div>
+        </div>
+      </v-col>
+
+      <v-col cols="12" sm="6" md="3">
+        <div class="neo-stat-card neo-animate-in">
+          <div class="neo-stat-icon">
+            <v-icon color="success" size="24">mdi-cash-multiple</v-icon>
+          </div>
+          <h3 class="text-h4 font-weight-bold mt-2">L {{ stats.totalRevenue.toFixed(2) }}</h3>
+          <p class="text-body-2 text-medium-emphasis">Ingresos</p>
+          <div class="neo-stat-bar" style="--bar-color: #66BB6A;"></div>
+        </div>
+      </v-col>
+
+      <v-col cols="12" sm="6" md="3">
+        <div class="neo-stat-card neo-animate-in">
+          <div class="neo-stat-icon">
+            <v-icon color="info" size="24">mdi-percent</v-icon>
+          </div>
+          <h3 class="text-h4 font-weight-bold mt-2">L {{ stats.totalTax.toFixed(2) }}</h3>
+          <p class="text-body-2 text-medium-emphasis">ISV</p>
+          <div class="neo-stat-bar" style="--bar-color: #42A5F5;"></div>
+        </div>
+      </v-col>
+
+      <v-col cols="12" sm="6" md="3">
+        <div class="neo-stat-card neo-animate-in">
+          <div class="neo-stat-icon">
+            <v-icon color="warning" size="24">mdi-trending-up</v-icon>
+          </div>
+          <h3 class="text-h4 font-weight-bold mt-2">L {{ stats.averageSale.toFixed(2) }}</h3>
+          <p class="text-body-2 text-medium-emphasis">Ticket Promedio</p>
+          <div class="neo-stat-bar" style="--bar-color: #FFA726;"></div>
+        </div>
+      </v-col>
+    </v-row>
+
     <v-row>
-      <v-col cols="12" sm="6" md="3">
-        <v-card color="primary" variant="elevated">
-          <v-card-text class="text-center">
-            <v-icon size="48">mdi-cart</v-icon>
-            <h3 class="text-h4 mt-2">{{ stats.totalSales }}</h3>
-            <p class="text-subtitle-1">Ventas</p>
-          </v-card-text>
-        </v-card>
-      </v-col>
-
-      <v-col cols="12" sm="6" md="3">
-        <v-card color="success" variant="elevated">
-          <v-card-text class="text-center">
-            <v-icon size="48">mdi-cash</v-icon>
-            <h3 class="text-h4 mt-2">${{ stats.totalRevenue.toFixed(2) }}</h3>
-            <p class="text-subtitle-1">Ingresos</p>
-          </v-card-text>
-        </v-card>
-      </v-col>
-
-      <v-col cols="12" sm="6" md="3">
-        <v-card color="info" variant="elevated">
-          <v-card-text class="text-center">
-            <v-icon size="48">mdi-percent</v-icon>
-            <h3 class="text-h4 mt-2">${{ stats.totalTax.toFixed(2) }}</h3>
-            <p class="text-subtitle-1">IVA</p>
-          </v-card-text>
-        </v-card>
-      </v-col>
-
-      <v-col cols="12" sm="6" md="3">
-        <v-card color="warning" variant="elevated">
-          <v-card-text class="text-center">
-            <v-icon size="48">mdi-trending-up</v-icon>
-            <h3 class="text-h4 mt-2">${{ stats.averageSale.toFixed(2) }}</h3>
-            <p class="text-subtitle-1">Ticket Promedio</p>
-          </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
-
-    <v-row class="mt-4">
-      <!-- Gráfico de ventas -->
+      <!-- Tabla de ventas por día -->
       <v-col cols="12" md="8">
-        <v-card>
-          <v-card-title>
-            <v-icon start>mdi-chart-line</v-icon>
-            Ventas por Día
-          </v-card-title>
-          <v-card-text>
-            <v-table v-if="salesByDay.length > 0">
+        <v-card class="neo-animate-in">
+          <v-card-text class="pa-5">
+            <div class="d-flex align-center mb-4">
+              <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #66BB6A, #81C784);">
+                <v-icon color="white" size="18">mdi-chart-line</v-icon>
+              </div>
+              <h3 class="text-subtitle-1 font-weight-bold">Ventas por Día</h3>
+            </div>
+
+            <v-table v-if="salesByDay.length > 0" class="neo-table">
               <thead>
                 <tr>
-                  <th>Fecha</th>
+                  <th class="text-left">Fecha</th>
                   <th class="text-end">Total</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="day in salesByDay" :key="day.date">
-                  <td>{{ day.date }}</td>
-                  <td class="text-end font-weight-bold">${{ day.total.toFixed(2) }}</td>
+                  <td class="text-body-2">{{ day.date }}</td>
+                  <td class="text-end font-weight-bold text-primary">L {{ day.total.toFixed(2) }}</td>
                 </tr>
               </tbody>
             </v-table>
-            <v-alert v-else type="info" variant="tonal">
+            <v-alert v-else type="info" class="mt-2">
               No hay datos para mostrar en el período seleccionado
             </v-alert>
           </v-card-text>
@@ -196,26 +214,31 @@ async function loadTopProducts() {
 
       <!-- Productos con stock bajo -->
       <v-col cols="12" md="4">
-        <v-card>
-          <v-card-title class="text-warning">
-            <v-icon start color="warning">mdi-alert</v-icon>
-            Stock Bajo
-          </v-card-title>
-          <v-card-text>
+        <v-card class="neo-animate-in">
+          <v-card-text class="pa-5">
+            <div class="d-flex align-center mb-4">
+              <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #FFA726, #FFB74D);">
+                <v-icon color="white" size="18">mdi-alert</v-icon>
+              </div>
+              <h3 class="text-subtitle-1 font-weight-bold">Stock Bajo</h3>
+            </div>
+
             <v-list v-if="lowStockProducts.length > 0" density="compact">
               <v-list-item
                 v-for="product in lowStockProducts"
                 :key="product.id"
+                rounded="lg"
+                class="mb-1"
               >
-                <v-list-item-title>{{ product.name }}</v-list-item-title>
+                <v-list-item-title class="text-body-2">{{ product.name }}</v-list-item-title>
                 <template #append>
-                  <v-chip color="warning" size="small">
+                  <v-chip color="warning" size="small" variant="tonal">
                     {{ product.stock }} / {{ product.min_stock }}
                   </v-chip>
                 </template>
               </v-list-item>
             </v-list>
-            <v-alert v-else type="success" variant="tonal">
+            <v-alert v-else type="success">
               Todos los productos tienen stock suficiente
             </v-alert>
           </v-card-text>
@@ -225,7 +248,57 @@ async function loadTopProducts() {
 
     <!-- Loading -->
     <v-overlay :model-value="loading" class="align-center justify-center">
-      <v-progress-circular indeterminate color="primary" size="64" />
+      <div class="neo-circle neo-pulse">
+        <v-progress-circular indeterminate color="primary" size="32" width="3" />
+      </div>
     </v-overlay>
   </v-container>
 </template>
+
+<style scoped>
+.neo-tab-group {
+  background-color: var(--neo-bg-alt);
+  box-shadow: var(--neo-pressed-sm);
+  border-radius: var(--neo-radius-xs);
+  padding: 3px;
+  gap: 3px;
+  display: flex;
+}
+
+.neo-tab-btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: var(--neo-transition);
+  color: inherit;
+}
+
+.neo-tab-btn:hover {
+  color: rgb(var(--v-theme-primary));
+}
+
+.neo-tab-btn-active {
+  box-shadow: var(--neo-raised-sm);
+  background-color: var(--neo-bg) !important;
+  color: rgb(var(--v-theme-primary));
+  font-weight: 600;
+}
+
+.neo-stat-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--bar-color);
+  border-radius: 0 0 var(--neo-radius) var(--neo-radius);
+}
+
+.neo-table {
+  background: transparent !important;
+}
+</style>

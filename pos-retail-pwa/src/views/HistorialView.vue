@@ -71,28 +71,29 @@ const saleItems = computed(() => {
 </script>
 
 <template>
-  <v-container fluid class="pa-4">
-    <v-card>
-      <v-card-title class="d-flex align-center">
-        <v-icon start>mdi-history</v-icon>
-        Historial de Ventas
-        <v-spacer />
-        <v-btn color="primary" variant="outlined" @click="loadSales">
-          <v-icon start>mdi-refresh</v-icon>
-          Actualizar
-        </v-btn>
-      </v-card-title>
+  <v-container fluid class="pa-4 pa-md-6">
+    <v-card class="neo-animate-in">
+      <v-card-text class="pa-5">
+        <!-- Header -->
+        <div class="d-flex align-center mb-5">
+          <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #AB47BC, #CE93D8);">
+            <v-icon color="white" size="20">mdi-history</v-icon>
+          </div>
+          <h2 class="text-h6 font-weight-bold">Historial de Ventas</h2>
+          <v-spacer />
+          <v-btn color="primary" variant="outlined" @click="loadSales">
+            <v-icon start>mdi-refresh</v-icon>
+            Actualizar
+          </v-btn>
+        </div>
 
-      <v-card-text>
         <!-- Filtros -->
-        <v-row class="mb-4">
+        <v-row class="mb-5">
           <v-col cols="12" sm="4">
             <v-text-field
               v-model="dateFrom"
               label="Desde"
               type="date"
-              variant="outlined"
-              density="compact"
               @change="loadSales"
             />
           </v-col>
@@ -101,16 +102,16 @@ const saleItems = computed(() => {
               v-model="dateTo"
               label="Hasta"
               type="date"
-              variant="outlined"
-              density="compact"
               @change="loadSales"
             />
           </v-col>
           <v-col cols="12" sm="4" class="d-flex align-center">
             <v-btn
               variant="text"
+              color="secondary"
               @click="dateFrom = ''; dateTo = ''; loadSales()"
             >
+              <v-icon start>mdi-filter-remove</v-icon>
               Limpiar filtros
             </v-btn>
           </v-col>
@@ -129,95 +130,95 @@ const saleItems = computed(() => {
           :items="sales"
           :loading="loading"
           item-value="id"
-          density="comfortable"
         >
           <template #item.created_at="{ item }">
-            {{ formatDate(item.created_at) }}
+            <span class="text-body-2">{{ formatDate(item.created_at) }}</span>
           </template>
 
           <template #item.total="{ item }">
-            <span class="font-weight-bold">${{ item.total.toFixed(2) }}</span>
+            <span class="font-weight-bold text-primary">L {{ item.total.toFixed(2) }}</span>
           </template>
 
           <template #item.payment_method="{ item }">
-            <v-icon :title="item.payment_method">
-              {{ getPaymentIcon(item.payment_method) }}
-            </v-icon>
+            <v-chip variant="tonal" size="small">
+              <v-icon start size="16">{{ getPaymentIcon(item.payment_method) }}</v-icon>
+              {{ item.payment_method }}
+            </v-chip>
           </template>
 
           <template #item.status="{ item }">
-            <v-chip :color="getStatusColor(item.status)" size="small">
+            <v-chip :color="getStatusColor(item.status)" size="small" variant="tonal">
               {{ item.status }}
             </v-chip>
           </template>
 
           <template #item.actions="{ item }">
             <v-btn icon size="small" variant="text" @click="viewDetails(item)">
-              <v-icon>mdi-eye</v-icon>
+              <v-icon size="18">mdi-eye-outline</v-icon>
             </v-btn>
           </template>
         </v-data-table>
       </v-card-text>
     </v-card>
 
-    <!-- Diálogo de detalles -->
+    <!-- Diálogo de detalles neomórfico -->
     <v-dialog v-model="showDetails" max-width="600">
       <v-card v-if="selectedSale">
-        <v-card-title class="bg-primary pa-4">
-          <v-icon start>mdi-receipt</v-icon>
-          Venta {{ selectedSale.sale_number }}
-        </v-card-title>
+        <div class="pa-6 text-center">
+          <div class="neo-circle mx-auto mb-3" style="background: linear-gradient(135deg, #AB47BC, #CE93D8);">
+            <v-icon color="white" size="28">mdi-receipt-text</v-icon>
+          </div>
+          <h3 class="text-h6 font-weight-bold">{{ selectedSale.sale_number }}</h3>
+          <p class="text-caption text-medium-emphasis">{{ formatDate(selectedSale.created_at) }}</p>
+        </div>
 
-        <v-card-text class="pa-6">
-          <v-row class="mb-4">
-            <v-col cols="6">
-              <strong>Fecha:</strong><br>
-              {{ formatDate(selectedSale.created_at) }}
-            </v-col>
-            <v-col cols="6">
-              <strong>Estado:</strong><br>
-              <v-chip :color="getStatusColor(selectedSale.status)" size="small">
-                {{ selectedSale.status }}
-              </v-chip>
-            </v-col>
-          </v-row>
+        <v-card-text class="px-6 pb-2">
+          <div class="d-flex justify-space-between mb-3">
+            <v-chip :color="getStatusColor(selectedSale.status)" size="small" variant="tonal">
+              {{ selectedSale.status }}
+            </v-chip>
+            <v-chip variant="tonal" size="small">
+              <v-icon start size="16">{{ getPaymentIcon(selectedSale.payment_method) }}</v-icon>
+              {{ selectedSale.payment_method }}
+            </v-chip>
+          </div>
 
-          <v-divider class="my-4" />
+          <div class="neo-divider" />
 
-          <h4 class="mb-2">Productos</h4>
-          <v-list density="compact">
-            <v-list-item v-for="(item, i) in saleItems" :key="i">
-              <v-list-item-title>{{ item.name }}</v-list-item-title>
-              <v-list-item-subtitle>
-                {{ item.quantity }} x ${{ item.unit_price.toFixed(2) }}
-              </v-list-item-subtitle>
-              <template #append>
-                <span class="font-weight-bold">${{ item.subtotal.toFixed(2) }}</span>
-              </template>
-            </v-list-item>
-          </v-list>
+          <h4 class="text-subtitle-2 font-weight-bold mb-3">Productos</h4>
+          <div class="neo-card-pressed pa-3 mb-4">
+            <div v-for="(item, i) in saleItems" :key="i" class="d-flex justify-space-between py-1">
+              <div>
+                <span class="text-body-2">{{ item.name }}</span>
+                <br>
+                <span class="text-caption text-medium-emphasis">
+                  {{ item.quantity }} x L {{ item.unit_price.toFixed(2) }}
+                </span>
+              </div>
+              <span class="text-body-2 font-weight-bold">L {{ item.subtotal.toFixed(2) }}</span>
+            </div>
+          </div>
 
-          <v-divider class="my-4" />
-
-          <v-row>
-            <v-col cols="6"><strong>Subtotal:</strong></v-col>
-            <v-col cols="6" class="text-end">${{ (selectedSale.subtotal || 0).toFixed(2) }}</v-col>
-          </v-row>
-          <v-row>
-            <v-col cols="6"><strong>IVA:</strong></v-col>
-            <v-col cols="6" class="text-end">${{ (selectedSale.tax_amount || 0).toFixed(2) }}</v-col>
-          </v-row>
-          <v-row v-if="selectedSale.discount">
-            <v-col cols="6"><strong>Descuento:</strong></v-col>
-            <v-col cols="6" class="text-end text-error">-${{ selectedSale.discount.toFixed(2) }}</v-col>
-          </v-row>
-          <v-row class="mt-2">
-            <v-col cols="6"><strong class="text-h6">Total:</strong></v-col>
-            <v-col cols="6" class="text-end text-primary text-h6">${{ selectedSale.total.toFixed(2) }}</v-col>
-          </v-row>
+          <div class="d-flex justify-space-between text-body-2 mb-1">
+            <span class="text-medium-emphasis">Subtotal:</span>
+            <span>L {{ (selectedSale.subtotal || 0).toFixed(2) }}</span>
+          </div>
+          <div class="d-flex justify-space-between text-body-2 mb-1">
+            <span class="text-medium-emphasis">ISV:</span>
+            <span>L {{ (selectedSale.tax_amount || 0).toFixed(2) }}</span>
+          </div>
+          <div v-if="selectedSale.discount" class="d-flex justify-space-between text-body-2 mb-1">
+            <span class="text-medium-emphasis">Descuento:</span>
+            <span class="text-error">-L {{ selectedSale.discount.toFixed(2) }}</span>
+          </div>
+          <div class="neo-divider" />
+          <div class="d-flex justify-space-between text-h6 font-weight-bold">
+            <span>Total:</span>
+            <span class="text-primary">L {{ selectedSale.total.toFixed(2) }}</span>
+          </div>
         </v-card-text>
 
-        <v-card-actions class="pa-4">
+        <v-card-actions class="pa-6 pt-3">
           <v-spacer />
           <v-btn variant="text" @click="showDetails = false">Cerrar</v-btn>
           <v-btn color="primary" variant="outlined">

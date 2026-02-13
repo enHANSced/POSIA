@@ -40,11 +40,13 @@ async function handleLogout() {
   <v-app>
     <!-- Loading inicial -->
     <template v-if="authStore.loading && !authStore.isAuthenticated">
-      <v-container class="fill-height">
+      <v-container class="fill-height neo-bg">
         <v-row justify="center" align="center">
-          <v-col cols="auto">
-            <v-progress-circular indeterminate color="primary" size="64" />
-            <p class="mt-4 text-center text-grey">Cargando...</p>
+          <v-col cols="auto" class="text-center">
+            <div class="neo-circle mx-auto mb-4">
+              <v-progress-circular indeterminate color="primary" size="32" width="3" />
+            </div>
+            <p class="text-body-2 text-medium-emphasis">Cargando...</p>
           </v-col>
         </v-row>
       </v-container>
@@ -52,61 +54,67 @@ async function handleLogout() {
 
     <!-- Contenido cuando está autenticado -->
     <template v-else-if="authStore.isAuthenticated">
-      <!-- App Bar -->
-      <v-app-bar color="primary" prominent>
-        <v-app-bar-nav-icon @click="rail = !rail" />
+      <!-- App Bar Neomórfica -->
+      <v-app-bar flat class="neo-appbar px-2">
+        <v-btn icon variant="text" @click="rail = !rail" class="neo-btn-icon">
+          <v-icon>{{ rail ? 'mdi-menu' : 'mdi-menu-open' }}</v-icon>
+        </v-btn>
 
-        <v-toolbar-title>
-          <v-icon class="mr-2">mdi-point-of-sale</v-icon>
-          POS Retail IA
+        <v-toolbar-title class="d-flex align-center">
+          <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
+            <v-icon color="white" size="20">mdi-point-of-sale</v-icon>
+          </div>
+          <span class="text-h6 font-weight-bold">POS Retail IA</span>
         </v-toolbar-title>
 
         <v-spacer />
 
         <!-- Badge de notificaciones -->
-        <v-btn icon>
+        <v-btn icon variant="text" class="neo-btn-icon mr-2">
           <v-badge color="error" content="3" overlap>
-            <v-icon>mdi-bell</v-icon>
+            <v-icon>mdi-bell-outline</v-icon>
           </v-badge>
         </v-btn>
 
         <!-- Menú de usuario -->
         <v-menu>
           <template #activator="{ props }">
-            <v-btn v-bind="props" icon>
-              <v-avatar color="secondary" size="32">
-                <span class="text-h6">{{ authStore.userName.charAt(0).toUpperCase() }}</span>
+            <v-btn v-bind="props" icon variant="text" class="neo-btn-icon">
+              <v-avatar size="34" class="neo-avatar">
+                <span class="text-body-1 font-weight-bold text-primary">
+                  {{ authStore.userName.charAt(0).toUpperCase() }}
+                </span>
               </v-avatar>
             </v-btn>
           </template>
-          <v-list density="compact" min-width="200">
-            <v-list-item>
+          <v-list density="compact" min-width="220" class="pa-2">
+            <v-list-item class="mb-1">
               <v-list-item-title class="font-weight-bold">
                 {{ authStore.userName }}
               </v-list-item-title>
-              <v-list-item-subtitle>
+              <v-list-item-subtitle class="text-caption">
                 {{ authStore.userRole }}
               </v-list-item-subtitle>
             </v-list-item>
-            <v-divider />
-            <v-list-item to="/configuracion" prepend-icon="mdi-account-cog">
+            <v-divider class="my-1" />
+            <v-list-item to="/configuracion" prepend-icon="mdi-account-cog" rounded="lg">
               <v-list-item-title>Mi Perfil</v-list-item-title>
             </v-list-item>
-            <v-list-item @click="handleLogout" prepend-icon="mdi-logout" class="text-error">
+            <v-list-item @click="handleLogout" prepend-icon="mdi-logout" class="text-error" rounded="lg">
               <v-list-item-title>Cerrar Sesión</v-list-item-title>
             </v-list-item>
           </v-list>
         </v-menu>
       </v-app-bar>
 
-      <!-- Navigation Drawer -->
+      <!-- Navigation Drawer Neomórfico -->
       <v-navigation-drawer
         v-model="drawer"
         :rail="rail"
         permanent
         @click="rail = false"
       >
-        <v-list nav density="compact">
+        <v-list nav density="compact" class="pa-3">
           <v-list-item
             v-for="item in visibleNavItems"
             :key="item.to"
@@ -115,17 +123,18 @@ async function handleLogout() {
             :title="item.title"
             :active="route.path === item.to"
             color="primary"
+            rounded="lg"
+            class="mb-1"
           />
         </v-list>
 
         <template #append>
-          <v-divider />
-          <v-list-item v-if="!rail" class="pa-4">
-            <v-list-item-subtitle class="text-caption">
-              <v-icon size="small" class="mr-1">mdi-robot</v-icon>
-              Asistente IA disponible
-            </v-list-item-subtitle>
-          </v-list-item>
+          <div class="pa-3">
+            <div v-if="!rail" class="neo-card-pressed pa-3 text-center">
+              <v-icon size="20" color="primary" class="mr-1">mdi-robot-happy</v-icon>
+              <span class="text-caption text-medium-emphasis">Asistente IA</span>
+            </div>
+          </div>
         </template>
       </v-navigation-drawer>
 
@@ -143,3 +152,24 @@ async function handleLogout() {
     </template>
   </v-app>
 </template>
+
+<style scoped>
+.neo-appbar {
+  background-color: var(--neo-bg) !important;
+  border-bottom: none !important;
+}
+
+.neo-btn-icon {
+  box-shadow: var(--neo-raised-sm) !important;
+  background-color: var(--neo-bg) !important;
+}
+
+.neo-btn-icon:active {
+  box-shadow: var(--neo-pressed-sm) !important;
+}
+
+.neo-avatar {
+  box-shadow: var(--neo-raised-sm) !important;
+  background-color: var(--neo-bg-alt) !important;
+}
+</style>

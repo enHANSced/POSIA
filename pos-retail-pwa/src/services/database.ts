@@ -11,7 +11,7 @@ export async function fetchProducts(): Promise<Product[]> {
     .order('name')
 
   if (error) throw error
-  return data || []
+  return (data as unknown as Product[]) || []
 }
 
 export async function fetchProductById(id: string): Promise<Product | null> {
@@ -22,7 +22,7 @@ export async function fetchProductById(id: string): Promise<Product | null> {
     .single()
 
   if (error) throw error
-  return data
+  return data as unknown as Product | null
 }
 
 export async function searchProducts(query: string): Promise<Product[]> {
@@ -34,7 +34,7 @@ export async function searchProducts(query: string): Promise<Product[]> {
     .limit(20)
 
   if (error) throw error
-  return data || []
+  return (data as unknown as Product[]) || []
 }
 
 export async function fetchProductByBarcode(barcode: string): Promise<Product | null> {
@@ -46,7 +46,7 @@ export async function fetchProductByBarcode(barcode: string): Promise<Product | 
     .single()
 
   if (error && error.code !== 'PGRST116') throw error // PGRST116 = no rows
-  return data
+  return data as unknown as Product | null
 }
 
 export async function createProduct(

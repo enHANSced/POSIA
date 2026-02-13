@@ -9,7 +9,7 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export type Database = {
+export interface Database {
   public: {
     Tables: {
       categories: {
@@ -97,29 +97,7 @@ export type Database = {
           type?: string
           user_id?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "inventory_movements_product_id_fkey"
-            columns: ["product_id"]
-            isOneToOne: false
-            referencedRelation: "low_stock_products"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "inventory_movements_product_id_fkey"
-            columns: ["product_id"]
-            isOneToOne: false
-            referencedRelation: "products"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "inventory_movements_product_id_fkey"
-            columns: ["product_id"]
-            isOneToOne: false
-            referencedRelation: "top_selling_products"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       products: {
         Row: {
@@ -176,15 +154,7 @@ export type Database = {
           tax_rate?: number | null
           updated_at?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "products_category_id_fkey"
-            columns: ["category_id"]
-            isOneToOne: false
-            referencedRelation: "categories"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       push_subscriptions: {
         Row: {
@@ -261,6 +231,42 @@ export type Database = {
         }
         Relationships: []
       }
+      user_profiles: {
+        Row: {
+          active: boolean | null
+          avatar_url: string | null
+          created_at: string | null
+          email: string
+          full_name: string | null
+          id: string
+          phone: string | null
+          role: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          active?: boolean | null
+          avatar_url?: string | null
+          created_at?: string | null
+          email: string
+          full_name?: string | null
+          id: string
+          phone?: string | null
+          role?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          active?: boolean | null
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string
+          full_name?: string | null
+          id?: string
+          phone?: string | null
+          role?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       low_stock_products: {
@@ -284,15 +290,7 @@ export type Database = {
           tax_rate: number | null
           updated_at: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "products_category_id_fkey"
-            columns: ["category_id"]
-            isOneToOne: false
-            referencedRelation: "categories"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       sales_summary_today: {
         Row: {
@@ -337,71 +335,125 @@ export type Database = {
         Returns: undefined
       }
     }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
+    Enums: Record<string, never>
+    CompositeTypes: Record<string, never>
   }
 }
 
-// Helper types
-type DefaultSchema = Database[Extract<keyof Database, "public">]
-
-export type Tables<
-  TableName extends keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-> = (DefaultSchema["Tables"] & DefaultSchema["Views"])[TableName] extends {
-  Row: infer R
-}
-  ? R
-  : never
-
-export type TablesInsert<
-  TableName extends keyof DefaultSchema["Tables"]
-> = DefaultSchema["Tables"][TableName] extends {
-  Insert: infer I
-}
-  ? I
-  : never
-
-export type TablesUpdate<
-  TableName extends keyof DefaultSchema["Tables"]
-> = DefaultSchema["Tables"][TableName] extends {
-  Update: infer U
-}
-  ? U
-  : never
-
-// Tipos de dominio para uso más cómodo
-export type Category = Tables<"categories">
-export type Product = Tables<"products">
-export type Sale = Tables<"sales">
-export type InventoryMovement = Tables<"inventory_movements">
-export type IAConversation = Tables<"ia_conversations">
-export type PushSubscription = Tables<"push_subscriptions">
-
-// Tipos para vistas
-export type LowStockProduct = Tables<"low_stock_products">
-export type SalesSummaryToday = Tables<"sales_summary_today">
-export type TopSellingProduct = Tables<"top_selling_products">
-
-// Tipos para inserciones
-export type CategoryInsert = TablesInsert<"categories">
-export type ProductInsert = TablesInsert<"products">
-export type SaleInsert = TablesInsert<"sales">
-export type InventoryMovementInsert = TablesInsert<"inventory_movements">
-
-// Tipos auxiliares para el carrito
-export interface SaleItem {
-  product_id: string
+// Tipos de entidades principales
+export interface Category {
+  id: string
   name: string
-  quantity: number
-  unit_price: number
-  subtotal: number
-  tax: number
+  description: string | null
+  icon: string | null
+  color: string | null
+  created_at: string | null
+  updated_at: string | null
 }
 
+export interface Product {
+  id: string
+  name: string
+  description: string | null
+  sku: string | null
+  barcode: string | null
+  price: number
+  cost: number | null
+  stock: number | null
+  min_stock: number | null
+  category_id: string | null
+  image_url: string | null
+  active: boolean | null
+  tax_rate: number | null
+  metadata: Json | null
+  created_at: string | null
+  updated_at: string | null
+  // Relación con categoría (opcional, se incluye con select)
+  categories?: {
+    name: string
+    color: string | null
+    icon: string | null
+  } | null
+}
+
+export interface Sale {
+  id: string
+  sale_number: string
+  items: Json
+  subtotal: number | null
+  tax_amount: number | null
+  discount: number | null
+  total: number
+  payment_method: string
+  seller_id: string | null
+  status: string | null
+  notes: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface InventoryMovement {
+  id: string
+  product_id: string
+  type: string
+  quantity: number
+  reason: string | null
+  user_id: string | null
+  created_at: string | null
+}
+
+export interface IAConversation {
+  id: string
+  user_id: string
+  messages: Json | null
+  title: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface PushSubscription {
+  id: string
+  user_id: string
+  endpoint: string
+  p256dh_key: string | null
+  auth_key: string | null
+  created_at: string | null
+}
+
+export interface UserProfile {
+  id: string
+  email: string
+  full_name: string | null
+  avatar_url: string | null
+  role: string | null
+  phone: string | null
+  active: boolean | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface LowStockProduct {
+  id: string | null
+  name: string | null
+  description: string | null
+  sku: string | null
+  barcode: string | null
+  price: number | null
+  cost: number | null
+  stock: number | null
+  min_stock: number | null
+  category_id: string | null
+  category_name: string | null
+  category_color: string | null
+  image_url: string | null
+  active: boolean | null
+  tax_rate: number | null
+  metadata: Json | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+// Tipos para carrito
 export interface CartItem {
   product: Product
   quantity: number
@@ -409,9 +461,12 @@ export interface CartItem {
   tax: number
 }
 
-// Tipos para mensajes IA
-export interface IAMessage {
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: string
+// Tipos para items de venta (se guardan en la columna items JSON)
+export interface SaleItem {
+  product_id: string
+  name: string
+  quantity: number
+  unit_price: number
+  subtotal: number
+  tax: number
 }

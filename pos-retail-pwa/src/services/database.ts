@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Product, Sale, Category, SaleItem } from '@/types/database.types'
+import type { Product, Sale, Category, SaleItem, LowStockProduct, Json } from '@/types/supabase'
 
 // ==================== PRODUCTOS ====================
 
@@ -77,19 +77,12 @@ export async function updateProduct(
   return data
 }
 
-export async function fetchLowStockProducts(): Promise<Product[]> {
-  const { data, error } = await supabase
-    .from('products')
-    .select('*')
-    .lte('stock', supabase.rpc('get_min_stock'))
-    .eq('active', true)
-
-  // Alternativa sin RPC
-  const { data: products, error: err } = await supabase
+export async function fetchLowStockProducts(): Promise<LowStockProduct[]> {
+  const { data: products, error } = await supabase
     .from('low_stock_products')
     .select('*')
 
-  if (err) throw err
+  if (error) throw error
   return products || []
 }
 
@@ -142,7 +135,7 @@ export async function createSale(
     .insert([{
       sale_number: saleNumber,
       seller_id: user.id,
-      items,
+      items: items as unknown as Json,
       subtotal,
       tax_amount: taxAmount,
       discount,
@@ -215,7 +208,7 @@ export async function getSalesSummary(startDate: string, endDate: string) {
 
   const totalSales = data?.length || 0
   const totalRevenue = data?.reduce((acc, sale) => acc + sale.total, 0) || 0
-  const totalTax = data?.reduce((acc, sale) => acc + sale.tax_amount, 0) || 0
+  const totalTax = data?.reduce((acc, sale) => acc + (sale.tax_amount || 0), 0) || 0
 
   return {
     totalSales,
@@ -266,7 +259,7 @@ export async function updateProductStock(
       await supabase
         .from('products')
         .update({ 
-          stock: product.stock + quantity,
+          stock: (product.stock || 0) + quantity,
           updated_at: new Date().toISOString()
         })
         .eq('id', productId)

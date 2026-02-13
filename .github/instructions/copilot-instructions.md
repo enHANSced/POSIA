@@ -1,5 +1,8 @@
 # POS Retail PWA AI Coding Instructions
 
+# Important: Read this before coding on the POS Retail PWA project!
+The UI must be in spanish, with HNL as the currency. 
+
 ## Architecture at a glance
 - Vue 3 + Vite app with Vuetify UI, Pinia state, and Supabase backend.
 - App bootstraps in [pos-retail-pwa/src/main.ts](../../pos-retail-pwa/src/main.ts) with Pinia, router, and Vuetify.

@@ -1,0 +1,18 @@
+{
+	"servers": {
+		"supabase": {
+			"type": "http",
+			"url": "https://mcp.supabase.com/mcp?project_ref=tbsbfnubbdiqstjzxtzl"
+		},
+		"gemini-api-docs": {
+			"type": "stdio",
+			"command": "uvx",
+			"args": [
+				"--from",
+				"git+https://github.com/philschmid/gemini-api-docs-mcp",
+				"gemini-docs-mcp"
+			]
+		}
+	},
+	"inputs": []
+}

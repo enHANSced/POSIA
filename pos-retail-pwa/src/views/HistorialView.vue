@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, shallowRef, onMounted, computed } from 'vue'
 import { fetchSalesHistory } from '@/services/database'
-import type { Sale, SaleItem } from '@/types/supabase'
+import type { SaleItem } from '@/types/supabase'
+import type { SaleHistoryItem } from '@/services/database'
 
-const sales = ref<Sale[]>([])
+const sales = ref<SaleHistoryItem[]>([])
 const loading = ref(false)
-const selectedSale = shallowRef<Sale | null>(null)
+const selectedSale = shallowRef<SaleHistoryItem | null>(null)
 const showDetails = ref(false)
 
 // Filtros
@@ -34,8 +35,8 @@ async function loadSales() {
 function viewDetails(sale: unknown) {
   const resolvedSale =
     sale && typeof sale === 'object' && 'raw' in sale
-      ? (sale as { raw: Sale }).raw
-      : (sale as Sale)
+      ? (sale as { raw: SaleHistoryItem }).raw
+      : (sale as SaleHistoryItem)
 
   selectedSale.value = resolvedSale
   showDetails.value = true
@@ -127,6 +128,8 @@ const saleItems = computed(() => {
           :headers="[
             { title: 'No. Venta', key: 'sale_number' },
             { title: 'Fecha', key: 'created_at' },
+            { title: 'Vendedor', key: 'seller_name' },
+            { title: 'Correo', key: 'seller_email' },
             { title: 'Total', key: 'total', align: 'end' },
             { title: 'Método', key: 'payment_method', align: 'center' },
             { title: 'Estado', key: 'status', align: 'center' },
@@ -138,6 +141,14 @@ const saleItems = computed(() => {
         >
           <template #item.created_at="{ item }">
             <span class="text-body-2">{{ formatDate(item.created_at) }}</span>
+          </template>
+
+          <template #item.seller_name="{ item }">
+            <span class="text-body-2">{{ item.seller_name || 'Sin nombre' }}</span>
+          </template>
+
+          <template #item.seller_email="{ item }">
+            <span class="text-caption text-medium-emphasis">{{ item.seller_email || '-' }}</span>
           </template>
 
           <template #item.total="{ item }">

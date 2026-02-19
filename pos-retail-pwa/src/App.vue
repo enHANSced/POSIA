@@ -18,6 +18,8 @@ const drawer = ref(true)
 const rail = ref(false)
 const iaDrawer = ref(false)
 
+const canUseIA = computed(() => authStore.isAdmin)
+
 // Items de navegación
 const navItems = [
   { title: 'Punto de Venta', icon: 'mdi-point-of-sale', to: '/pos' },
@@ -79,7 +81,7 @@ async function handleLogout() {
           </v-badge>
         </v-btn>
 
-        <v-btn icon variant="text" class="neo-btn-icon mr-2" @click="iaDrawer = true">
+        <v-btn v-if="canUseIA" icon variant="text" class="neo-btn-icon mr-2" @click="iaDrawer = true">
           <v-icon>mdi-robot-happy-outline</v-icon>
         </v-btn>
 
@@ -137,7 +139,7 @@ async function handleLogout() {
 
         <template #append>
           <div class="pa-3">
-            <div v-if="!rail" class="neo-card-pressed pa-3 text-center">
+            <div v-if="canUseIA && !rail" class="neo-card-pressed pa-3 text-center">
               <v-icon size="20" color="primary" class="mr-1">mdi-robot-happy</v-icon>
               <span class="text-caption text-medium-emphasis">Asistente IA</span>
             </div>
@@ -150,7 +152,7 @@ async function handleLogout() {
         <router-view />
       </v-main>
 
-      <AsistenteIADrawer v-model="iaDrawer" />
+      <AsistenteIADrawer v-if="canUseIA" v-model="iaDrawer" />
     </template>
 
     <!-- Login/Guest content -->

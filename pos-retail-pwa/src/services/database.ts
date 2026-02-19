@@ -3,6 +3,11 @@ import type { Product, Sale, Category, SaleItem, LowStockProduct, Json } from '@
 
 const PRODUCT_IMAGES_BUCKET = import.meta.env.VITE_SUPABASE_PRODUCT_IMAGES_BUCKET || 'product-images'
 
+export type SaleHistoryItem = Sale & {
+  seller_name?: string | null
+  seller_email?: string | null
+}
+
 // ==================== PRODUCTOS ====================
 
 export async function fetchProducts(): Promise<Product[]> {
@@ -188,7 +193,7 @@ export async function fetchSalesHistory(
   startDate?: string,
   endDate?: string,
   limit: number = 100
-): Promise<Sale[]> {
+): Promise<SaleHistoryItem[]> {
   let query = supabase
     .from('sales')
     .select('*')
@@ -206,7 +211,41 @@ export async function fetchSalesHistory(
   const { data, error } = await query
 
   if (error) throw error
-  return data || []
+
+  const sales = (data || []) as Sale[]
+  const sellerIds = Array.from(
+    new Set(
+      sales
+        .map(sale => sale.seller_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    )
+  )
+
+  if (sellerIds.length === 0) {
+    return sales
+  }
+
+  const { data: sellerProfiles, error: sellerError } = await supabase
+    .from('user_profiles')
+    .select('id, full_name, email')
+    .in('id', sellerIds)
+
+  if (sellerError) {
+    return sales
+  }
+
+  const sellerMap = new Map(
+    (sellerProfiles || []).map(profile => [profile.id, profile])
+  )
+
+  return sales.map(sale => {
+    const seller = sale.seller_id ? sellerMap.get(sale.seller_id) : null
+    return {
+      ...sale,
+      seller_name: seller?.full_name || null,
+      seller_email: seller?.email || null
+    }
+  })
 }
 
 export async function fetchTodaySales(): Promise<Sale[]> {

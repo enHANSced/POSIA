@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, shallowRef, onMounted, computed } from 'vue'
 import { fetchSalesHistory } from '@/services/database'
 import type { Sale, SaleItem } from '@/types/supabase'
 
 const sales = ref<Sale[]>([])
 const loading = ref(false)
-const selectedSale = ref<Sale | null>(null)
+const selectedSale = shallowRef<Sale | null>(null)
 const showDetails = ref(false)
 
 // Filtros
@@ -31,8 +31,13 @@ async function loadSales() {
   }
 }
 
-function viewDetails(sale: Sale) {
-  selectedSale.value = sale
+function viewDetails(sale: unknown) {
+  const resolvedSale =
+    sale && typeof sale === 'object' && 'raw' in sale
+      ? (sale as { raw: Sale }).raw
+      : (sale as Sale)
+
+  selectedSale.value = resolvedSale
   showDetails.value = true
 }
 
@@ -65,8 +70,8 @@ function getPaymentIcon(method: string): string {
 }
 
 const saleItems = computed(() => {
-  if (!selectedSale.value) return []
-  return (selectedSale.value.items as unknown as SaleItem[]) || []
+  const items = selectedSale.value?.items
+  return Array.isArray(items) ? (items as unknown as SaleItem[]) : []
 })
 </script>
 

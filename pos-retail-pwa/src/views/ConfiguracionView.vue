@@ -2,13 +2,23 @@
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from 'vuetify'
+import {
+  isPushSupported,
+  getExistingPushSubscription,
+  subscribeToPushNotifications,
+  unsubscribeFromPushNotifications
+} from '@/services/push'
 
 const authStore = useAuthStore()
 const theme = useTheme()
 
 const saving = ref(false)
+const showMessage = ref(false)
 const message = ref('')
 const messageType = ref<'success' | 'error'>('success')
+const pushSupported = ref(false)
+const pushEnabled = ref(false)
+const pushLoading = ref(false)
 
 // Formulario de perfil
 const profileForm = ref({
@@ -33,7 +43,7 @@ const isDarkMode = computed({
   }
 })
 
-onMounted(() => {
+onMounted(async () => {
   // Cargar datos del perfil
   if (authStore.profile) {
     profileForm.value.full_name = authStore.profile.full_name || ''
@@ -45,7 +55,48 @@ onMounted(() => {
   if (savedTheme) {
     theme.change(savedTheme)
   }
+
+  await refreshPushState()
 })
+
+async function refreshPushState() {
+  pushSupported.value = isPushSupported()
+
+  if (!pushSupported.value) {
+    pushEnabled.value = false
+    return
+  }
+
+  const subscription = await getExistingPushSubscription()
+  pushEnabled.value = !!subscription
+}
+
+async function togglePushNotifications() {
+  if (!pushSupported.value || pushLoading.value) return
+
+  pushLoading.value = true
+
+  try {
+    if (pushEnabled.value) {
+      await unsubscribeFromPushNotifications()
+      message.value = 'Notificaciones desactivadas'
+      messageType.value = 'success'
+    } else {
+      await subscribeToPushNotifications()
+      message.value = 'Notificaciones activadas correctamente'
+      messageType.value = 'success'
+    }
+
+    showMessage.value = true
+    await refreshPushState()
+  } catch (err: any) {
+    message.value = err?.message || 'No se pudieron actualizar las notificaciones'
+    messageType.value = 'error'
+    showMessage.value = true
+  } finally {
+    pushLoading.value = false
+  }
+}
 
 async function saveProfile() {
   saving.value = true
@@ -60,16 +111,22 @@ async function saveProfile() {
     if (result.success) {
       message.value = 'Perfil actualizado correctamente'
       messageType.value = 'success'
+      showMessage.value = true
     } else {
       message.value = result.error || 'Error al actualizar'
       messageType.value = 'error'
+      showMessage.value = true
     }
   } catch (err) {
     message.value = 'Error inesperado'
     messageType.value = 'error'
+    showMessage.value = true
   } finally {
     saving.value = false
-    setTimeout(() => { message.value = '' }, 3000)
+    setTimeout(() => {
+      showMessage.value = false
+      message.value = ''
+    }, 3000)
   }
 }
 
@@ -77,6 +134,7 @@ async function changePassword() {
   if (passwordForm.value.newPassword !== passwordForm.value.confirmPassword) {
     message.value = 'Las contraseñas no coinciden'
     messageType.value = 'error'
+    showMessage.value = true
     return
   }
 
@@ -92,13 +150,18 @@ async function changePassword() {
 
     message.value = 'Contraseña actualizada correctamente'
     messageType.value = 'success'
+    showMessage.value = true
     passwordForm.value = { newPassword: '', confirmPassword: '' }
   } catch (err: any) {
     message.value = err.message || 'Error al cambiar contraseña'
     messageType.value = 'error'
+    showMessage.value = true
   } finally {
     saving.value = false
-    setTimeout(() => { message.value = '' }, 3000)
+    setTimeout(() => {
+      showMessage.value = false
+      message.value = ''
+    }, 3000)
   }
 }
 </script>
@@ -229,6 +292,33 @@ async function changePassword() {
                 hide-details
               />
             </div>
+
+            <div class="neo-card-pressed pa-4 d-flex align-center justify-space-between mt-4">
+              <div class="d-flex align-center">
+                <v-icon class="mr-3" size="22">mdi-bell-outline</v-icon>
+                <div>
+                  <div class="text-body-2 font-weight-medium">Notificaciones push</div>
+                  <div class="text-caption text-medium-emphasis">
+                    {{
+                      pushSupported
+                        ? (pushEnabled ? 'Activadas en este dispositivo' : 'Desactivadas en este dispositivo')
+                        : 'No soportadas en este navegador'
+                    }}
+                  </div>
+                </div>
+              </div>
+
+              <v-btn
+                :color="pushEnabled ? 'warning' : 'primary'"
+                :variant="pushEnabled ? 'outlined' : 'flat'"
+                :loading="pushLoading"
+                :disabled="!pushSupported"
+                size="small"
+                @click="togglePushNotifications"
+              >
+                {{ pushEnabled ? 'Desactivar' : 'Activar' }}
+              </v-btn>
+            </div>
           </v-card-text>
         </v-card>
 
@@ -285,7 +375,7 @@ async function changePassword() {
 
     <!-- Mensaje de feedback -->
     <v-snackbar
-      v-model="message"
+      v-model="showMessage"
       :color="messageType"
       :timeout="3000"
       location="bottom right"

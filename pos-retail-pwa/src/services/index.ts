@@ -1,4 +1,4 @@
-// Exportar todos los servicios
-export * from './supabase'
+export { supabase } from './supabase'
 export * from './auth'
 export * from './database'
+export * from './push'

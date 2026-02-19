@@ -296,6 +296,26 @@ export async function updateProductStock(
   }
 }
 
+export async function fetchInventoryMovements(limit: number = 200) {
+  const { data, error } = await supabase
+    .from('inventory_movements')
+    .select('id, product_id, type, quantity, reason, user_id, created_at, products(name, sku, barcode)')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) throw error
+  return data || []
+}
+
+export async function adjustInventory(
+  productId: string,
+  quantityDelta: number,
+  reason: string
+): Promise<void> {
+  const type = quantityDelta >= 0 ? 'entry' : 'adjustment'
+  await updateProductStock(productId, quantityDelta, type, reason)
+}
+
 // ==================== REALTIME ====================
 
 export function subscribeToProducts(

@@ -96,6 +96,16 @@ export interface IAMessage {
   timestamp: string
 }
 
+function esIAMessage(value: unknown): value is IAMessage {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  return (
+    (item.role === 'user' || item.role === 'assistant') &&
+    typeof item.content === 'string' &&
+    typeof item.timestamp === 'string'
+  )
+}
+
 export interface IAConversationSummary {
   id: string
   title: string | null
@@ -128,7 +138,10 @@ export async function fetchMensajesConversacion(conversationId: string): Promise
     .single()
 
   if (error) throw error
-  return (data?.messages as IAMessage[]) || []
+  const messages = data?.messages
+
+  if (!Array.isArray(messages)) return []
+  return (messages as unknown[]).filter(esIAMessage)
 }
 
 /**
@@ -141,4 +154,48 @@ export async function eliminarConversacion(conversationId: string): Promise<void
     .eq('id', conversationId)
 
   if (error) throw error
+}
+
+// ==================== IA PARA PRODUCTOS (MULTIMODAL) ====================
+
+export interface AnalizarProductoImagenRequest {
+  imageBase64: string
+  mimeType: string
+  barcode?: string
+}
+
+export interface AnalizarProductoImagenResponse {
+  success: boolean
+  suggestion: {
+    name?: string
+    description?: string
+    category_name?: string
+    sku?: string
+    barcode?: string
+    price?: number
+    cost?: number
+    tax_rate?: number
+  }
+}
+
+export async function analizarProductoImagen(
+  request: AnalizarProductoImagenRequest
+): Promise<AnalizarProductoImagenResponse> {
+  const { data, error } = await supabase.functions.invoke('analizar-producto', {
+    body: {
+      imageBase64: request.imageBase64,
+      mimeType: request.mimeType,
+      barcode: request.barcode ?? null,
+    },
+  })
+
+  if (error) {
+    throw new Error(error.message || 'Error al analizar imagen de producto')
+  }
+
+  if (data?.error) {
+    throw new Error(data.error)
+  }
+
+  return data as AnalizarProductoImagenResponse
 }

@@ -22,6 +22,7 @@ const iaDrawer = ref(false)
 const navItems = [
   { title: 'Punto de Venta', icon: 'mdi-point-of-sale', to: '/pos' },
   { title: 'Productos', icon: 'mdi-package-variant-closed', to: '/productos', admin: true },
+  { title: 'Inventario', icon: 'mdi-warehouse', to: '/inventario', admin: true },
   { title: 'Historial', icon: 'mdi-history', to: '/historial' },
   { title: 'Reportes', icon: 'mdi-chart-bar', to: '/reportes', admin: true },
   { title: 'Configuración', icon: 'mdi-cog', to: '/configuracion' }

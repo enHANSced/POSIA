@@ -27,6 +27,12 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true }
     },
     {
+      path: '/inventario',
+      name: 'inventario',
+      component: () => import('@/views/InventarioView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
       path: '/historial',
       name: 'historial',
       component: () => import('@/views/HistorialView.vue'),

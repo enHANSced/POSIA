@@ -2,7 +2,9 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useProductosStore } from '@/stores/productos'
 import { fetchCategories, createProduct, updateProduct, uploadProductImage } from '@/services/database'
+import { analizarProductoImagen } from '@/services/edge-functions'
 import type { Category, Product } from '@/types/supabase'
+import { Html5QrcodeScanner } from 'html5-qrcode'
 
 const productosStore = useProductosStore()
 
@@ -11,6 +13,7 @@ const searchQuery = ref('')
 const showForm = ref(false)
 const editingProduct = ref<Product | null>(null)
 let unsubscribe: (() => void) | null = null
+let barcodeScanner: Html5QrcodeScanner | null = null
 
 // Formulario
 const form = ref({
@@ -32,6 +35,12 @@ const formValid = ref(false)
 const saving = ref(false)
 const selectedImageFile = ref<File | null>(null)
 const imagePreview = ref('')
+const showBarcodeScanner = ref(false)
+const scannerManualCode = ref('')
+const scannerStatus = ref('')
+const scannerError = ref('')
+const analizandoImagen = ref(false)
+const analisisError = ref('')
 
 // Cargar datos
 onMounted(async () => {
@@ -45,6 +54,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unsubscribe?.()
+  clearBarcodeScanner()
 })
 
 async function loadCategories() {
@@ -118,6 +128,124 @@ function onImageSelected(files: File[] | File | null) {
   }
 
   imagePreview.value = URL.createObjectURL(file)
+}
+
+async function handleBarcode(code: string) {
+  const barcode = code.trim()
+  if (!barcode) return
+
+  form.value.barcode = barcode
+  scannerError.value = ''
+  scannerStatus.value = `Código detectado: ${barcode}`
+}
+
+async function initBarcodeScanner() {
+  if (barcodeScanner) return
+
+  try {
+    barcodeScanner = new Html5QrcodeScanner(
+      'productos-scanner-reader',
+      { fps: 10, qrbox: { width: 260, height: 120 } },
+      false
+    )
+
+    barcodeScanner.render(
+      async (decodedText) => {
+        await handleBarcode(decodedText)
+      },
+      () => {}
+    )
+  } catch {
+    scannerError.value = 'No se pudo iniciar el escáner.'
+  }
+}
+
+async function clearBarcodeScanner() {
+  if (!barcodeScanner) return
+  try {
+    await barcodeScanner.clear()
+  } catch {
+  } finally {
+    barcodeScanner = null
+  }
+}
+
+async function abrirEscaner() {
+  showBarcodeScanner.value = true
+  scannerStatus.value = ''
+  scannerError.value = ''
+  setTimeout(() => {
+    void initBarcodeScanner()
+  }, 80)
+}
+
+async function cerrarEscaner() {
+  showBarcodeScanner.value = false
+  await clearBarcodeScanner()
+}
+
+async function buscarCodigoManual() {
+  await handleBarcode(scannerManualCode.value)
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : ''
+      const base64 = result.split(',')[1]
+      if (!base64) {
+        reject(new Error('No se pudo convertir la imagen'))
+        return
+      }
+      resolve(base64)
+    }
+    reader.onerror = () => reject(new Error('Error leyendo la imagen'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function autocompletarConIA() {
+  if (!selectedImageFile.value) {
+    analisisError.value = 'Primero seleccioná una imagen del producto.'
+    return
+  }
+
+  analizandoImagen.value = true
+  analisisError.value = ''
+
+  try {
+    const imageBase64 = await fileToBase64(selectedImageFile.value)
+    const resultado = await analizarProductoImagen({
+      imageBase64,
+      mimeType: selectedImageFile.value.type || 'image/jpeg',
+      barcode: form.value.barcode || undefined,
+    })
+
+    const s = resultado.suggestion || {}
+
+    form.value.name = s.name || form.value.name
+    form.value.description = s.description || form.value.description
+    form.value.sku = s.sku || form.value.sku
+    form.value.barcode = s.barcode || form.value.barcode
+    form.value.price = typeof s.price === 'number' && s.price > 0 ? s.price : form.value.price
+    form.value.cost = typeof s.cost === 'number' && s.cost >= 0 ? s.cost : form.value.cost
+    form.value.tax_rate = typeof s.tax_rate === 'number' && s.tax_rate >= 0 ? s.tax_rate : form.value.tax_rate
+
+    if (s.category_name) {
+      const category = categories.value.find(
+        c => c.name.trim().toLowerCase() === s.category_name?.trim().toLowerCase()
+      )
+
+      if (category) {
+        form.value.category_id = category.id
+      }
+    }
+  } catch (error) {
+    analisisError.value = error instanceof Error ? error.message : 'No se pudo analizar la imagen.'
+  } finally {
+    analizandoImagen.value = false
+  }
 }
 
 function limpiarImagen() {
@@ -266,7 +394,14 @@ function getCategoryName(categoryId: string | null): string {
                 <v-text-field
                   v-model="form.barcode"
                   label="Código de barras"
-                />
+                  prepend-inner-icon="mdi-barcode"
+                >
+                  <template #append>
+                    <v-btn icon size="small" variant="text" @click="abrirEscaner">
+                      <v-icon size="18">mdi-barcode-scan</v-icon>
+                    </v-btn>
+                  </template>
+                </v-text-field>
               </v-col>
 
               <v-col cols="6">
@@ -315,6 +450,26 @@ function getCategoryName(categoryId: string | null): string {
                   clearable
                   @update:model-value="onImageSelected"
                 />
+              </v-col>
+
+              <v-col cols="12">
+                <div class="d-flex align-center ga-2">
+                  <v-btn
+                    color="primary"
+                    variant="outlined"
+                    :loading="analizandoImagen"
+                    @click="autocompletarConIA"
+                  >
+                    <v-icon start>mdi-auto-fix</v-icon>
+                    Rellenar con IA
+                  </v-btn>
+                  <span class="text-caption text-medium-emphasis">
+                    Usá una foto del empaque para autocompletar campos.
+                  </span>
+                </div>
+                <v-alert v-if="analisisError" type="error" density="compact" class="mt-2">
+                  {{ analisisError }}
+                </v-alert>
               </v-col>
 
               <v-col v-if="imagePreview || form.image_url" cols="12">
@@ -399,6 +554,45 @@ function getCategoryName(categoryId: string | null): string {
           >
             <v-icon start>mdi-content-save</v-icon>
             Guardar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="showBarcodeScanner" max-width="520" @update:model-value="!$event && cerrarEscaner()">
+      <v-card>
+        <div class="pa-6 d-flex align-center">
+          <div class="neo-circle-sm mr-3">
+            <v-icon color="primary">mdi-barcode-scan</v-icon>
+          </div>
+          <h3 class="text-h6 font-weight-bold">Escanear código de barras</h3>
+        </div>
+
+        <v-card-text class="px-6 pb-2">
+          <div id="productos-scanner-reader" class="neo-flat pa-2 mb-3" />
+
+          <v-text-field
+            v-model="scannerManualCode"
+            label="Código manual"
+            prepend-inner-icon="mdi-keyboard"
+            @keyup.enter="buscarCodigoManual"
+          />
+
+          <v-alert v-if="scannerStatus" type="success" density="compact" class="mb-2">
+            {{ scannerStatus }}
+          </v-alert>
+
+          <v-alert v-if="scannerError" type="error" density="compact">
+            {{ scannerError }}
+          </v-alert>
+        </v-card-text>
+
+        <v-card-actions class="pa-6 pt-2">
+          <v-btn variant="text" @click="cerrarEscaner">Cerrar</v-btn>
+          <v-spacer />
+          <v-btn color="primary" @click="buscarCodigoManual">
+            <v-icon start>mdi-check</v-icon>
+            Usar código
           </v-btn>
         </v-card-actions>
       </v-card>

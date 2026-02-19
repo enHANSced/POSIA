@@ -1,6 +1,8 @@
 import { supabase } from './supabase'
 import type { Product, Sale, Category, SaleItem, LowStockProduct, Json } from '@/types/supabase'
 
+const PRODUCT_IMAGES_BUCKET = import.meta.env.VITE_SUPABASE_PRODUCT_IMAGES_BUCKET || 'product-images'
+
 // ==================== PRODUCTOS ====================
 
 export async function fetchProducts(): Promise<Product[]> {
@@ -60,6 +62,31 @@ export async function createProduct(
 
   if (error) throw error
   return data
+}
+
+export async function uploadProductImage(file: File, productId?: string): Promise<string> {
+  const extension = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+  const safeExtension = extension.replace(/[^a-z0-9]/g, '') || 'jpg'
+  const folder = productId || 'temp'
+  const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${safeExtension}`
+  const filePath = `${folder}/${fileName}`
+
+  const { error: uploadError } = await supabase
+    .storage
+    .from(PRODUCT_IMAGES_BUCKET)
+    .upload(filePath, file, {
+      upsert: false,
+      contentType: file.type || 'image/jpeg'
+    })
+
+  if (uploadError) throw uploadError
+
+  const { data } = supabase
+    .storage
+    .from(PRODUCT_IMAGES_BUCKET)
+    .getPublicUrl(filePath)
+
+  return data.publicUrl
 }
 
 export async function updateProduct(

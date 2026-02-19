@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useProductosStore } from '@/stores/productos'
-import { fetchCategories, createProduct, updateProduct } from '@/services/database'
+import { fetchCategories, createProduct, updateProduct, uploadProductImage } from '@/services/database'
 import type { Category, Product } from '@/types/supabase'
 
 const productosStore = useProductosStore()
@@ -10,6 +10,7 @@ const categories = ref<Category[]>([])
 const searchQuery = ref('')
 const showForm = ref(false)
 const editingProduct = ref<Product | null>(null)
+let unsubscribe: (() => void) | null = null
 
 // Formulario
 const form = ref({
@@ -19,6 +20,7 @@ const form = ref({
   category_id: null as string | null,
   price: 0,
   cost: 0,
+  image_url: '',
   stock: 0,
   min_stock: 5,
   tax_rate: 16,
@@ -28,6 +30,8 @@ const form = ref({
 
 const formValid = ref(false)
 const saving = ref(false)
+const selectedImageFile = ref<File | null>(null)
+const imagePreview = ref('')
 
 // Cargar datos
 onMounted(async () => {
@@ -35,6 +39,12 @@ onMounted(async () => {
     productosStore.fetchProducts(),
     loadCategories()
   ])
+
+  unsubscribe = productosStore.subscribeToChanges()
+})
+
+onUnmounted(() => {
+  unsubscribe?.()
 })
 
 async function loadCategories() {
@@ -58,6 +68,8 @@ const productosFiltrados = computed(() => {
 
 function openNewForm() {
   editingProduct.value = null
+  selectedImageFile.value = null
+  imagePreview.value = ''
   form.value = {
     name: '',
     barcode: '',
@@ -65,6 +77,7 @@ function openNewForm() {
     category_id: null,
     price: 0,
     cost: 0,
+    image_url: '',
     stock: 0,
     min_stock: 5,
     tax_rate: 16,
@@ -76,6 +89,8 @@ function openNewForm() {
 
 function editProduct(product: Product) {
   editingProduct.value = product
+  selectedImageFile.value = null
+  imagePreview.value = product.image_url || ''
   form.value = {
     name: product.name,
     barcode: product.barcode || '',
@@ -83,6 +98,7 @@ function editProduct(product: Product) {
     category_id: product.category_id,
     price: product.price,
     cost: product.cost || 0,
+    image_url: product.image_url || '',
     stock: product.stock || 0,
     min_stock: product.min_stock || 5,
     tax_rate: product.tax_rate || 16,
@@ -92,16 +108,42 @@ function editProduct(product: Product) {
   showForm.value = true
 }
 
+function onImageSelected(files: File[] | File | null) {
+  const file = Array.isArray(files) ? (files[0] ?? null) : files
+  selectedImageFile.value = file
+
+  if (!file) {
+    imagePreview.value = form.value.image_url || ''
+    return
+  }
+
+  imagePreview.value = URL.createObjectURL(file)
+}
+
+function limpiarImagen() {
+  selectedImageFile.value = null
+  form.value.image_url = ''
+  imagePreview.value = ''
+}
+
 async function saveProduct() {
   if (!formValid.value) return
   saving.value = true
 
   try {
+    if (selectedImageFile.value) {
+      const uploadedUrl = await uploadProductImage(selectedImageFile.value, editingProduct.value?.id)
+      form.value.image_url = uploadedUrl
+    }
+
     if (editingProduct.value) {
       await updateProduct(editingProduct.value.id, form.value)
     } else {
       await createProduct(form.value as any)
     }
+
+    selectedImageFile.value = null
+    imagePreview.value = ''
     await productosStore.fetchProducts()
     showForm.value = false
   } catch (err) {
@@ -261,6 +303,43 @@ function getCategoryName(categoryId: string | null): string {
                   label="Costo"
                   type="number"
                   prefix="L"
+                />
+              </v-col>
+
+              <v-col cols="12">
+                <v-file-input
+                  label="Imagen del producto"
+                  accept="image/*"
+                  prepend-icon="mdi-camera"
+                  show-size
+                  clearable
+                  @update:model-value="onImageSelected"
+                />
+              </v-col>
+
+              <v-col v-if="imagePreview || form.image_url" cols="12">
+                <div class="neo-card-pressed pa-3 d-flex align-center">
+                  <v-img
+                    :src="imagePreview || form.image_url"
+                    width="96"
+                    height="72"
+                    cover
+                    class="rounded-lg mr-3"
+                  />
+                  <div class="text-caption text-medium-emphasis flex-grow-1">
+                    Vista previa de imagen
+                  </div>
+                  <v-btn icon variant="text" size="small" @click="limpiarImagen">
+                    <v-icon size="18">mdi-delete-outline</v-icon>
+                  </v-btn>
+                </div>
+              </v-col>
+
+              <v-col cols="12">
+                <v-text-field
+                  v-model="form.image_url"
+                  label="URL de imagen"
+                  prepend-inner-icon="mdi-image-outline"
                 />
               </v-col>
 

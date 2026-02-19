@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useProductosStore } from '@/stores/productos'
 import { useCarritoStore } from '@/stores/carrito'
 import { procesarVenta } from '@/services/edge-functions'
+import { Html5QrcodeScanner } from 'html5-qrcode'
 
 const productosStore = useProductosStore()
 const carritoStore = useCarritoStore()
@@ -13,6 +14,11 @@ const showCheckout = ref(false)
 const processingPayment = ref(false)
 const saleSuccess = ref(false)
 const saleError = ref('')
+const scannerManualCode = ref('')
+const scannerStatus = ref('')
+const scannerError = ref('')
+
+let barcodeScanner: Html5QrcodeScanner | null = null
 
 // Cargar productos y suscribir a realtime
 let unsubscribe: (() => void) | null = null
@@ -24,6 +30,20 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unsubscribe?.()
+  clearScanner()
+})
+
+watch(showScanner, async (open) => {
+  scannerStatus.value = ''
+  scannerError.value = ''
+
+  if (open) {
+    await nextTick()
+    await initScanner()
+    return
+  }
+
+  await clearScanner()
 })
 
 // Productos filtrados
@@ -39,6 +59,63 @@ const productosFiltrados = computed(() => {
 
 function agregarAlCarrito(producto: any) {
   carritoStore.addItem(producto)
+}
+
+async function handleBarcode(code: string) {
+  const barcode = code.trim()
+  if (!barcode) return
+
+  const product = await productosStore.getByBarcode(barcode)
+
+  if (!product) {
+    scannerError.value = 'No se encontró producto para ese código.'
+    return
+  }
+
+  if ((product.stock || 0) <= 0) {
+    scannerError.value = 'El producto está sin stock.'
+    return
+  }
+
+  scannerError.value = ''
+  scannerStatus.value = `Producto agregado: ${product.name}`
+  carritoStore.addItem(product)
+}
+
+async function initScanner() {
+  if (barcodeScanner) return
+
+  try {
+    barcodeScanner = new Html5QrcodeScanner(
+      'pos-scanner-reader',
+      { fps: 10, qrbox: { width: 260, height: 120 } },
+      false
+    )
+
+    barcodeScanner.render(
+      async (decodedText) => {
+        await handleBarcode(decodedText)
+      },
+      () => {}
+    )
+  } catch {
+    scannerError.value = 'No se pudo iniciar la cámara de escaneo.'
+  }
+}
+
+async function clearScanner() {
+  if (!barcodeScanner) return
+
+  try {
+    await barcodeScanner.clear()
+  } catch {
+  } finally {
+    barcodeScanner = null
+  }
+}
+
+async function buscarManual() {
+  await handleBarcode(scannerManualCode.value)
 }
 
 async function finalizarVenta() {
@@ -371,6 +448,44 @@ function formatHNL(value: number): string {
           >
             <v-icon start>mdi-check</v-icon>
             Confirmar Venta
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="showScanner" max-width="540">
+      <v-card>
+        <div class="pa-6 d-flex align-center">
+          <div class="neo-circle-sm mr-3">
+            <v-icon color="primary">mdi-barcode-scan</v-icon>
+          </div>
+          <h3 class="text-h6 font-weight-bold">Escanear producto</h3>
+        </div>
+
+        <v-card-text class="px-6 pb-2">
+          <div id="pos-scanner-reader" class="neo-flat pa-2 mb-3" />
+
+          <v-text-field
+            v-model="scannerManualCode"
+            label="Código de barras manual"
+            prepend-inner-icon="mdi-keyboard"
+            @keyup.enter="buscarManual"
+          />
+
+          <v-alert v-if="scannerStatus" type="success" density="compact" class="mb-2">
+            {{ scannerStatus }}
+          </v-alert>
+          <v-alert v-if="scannerError" type="error" density="compact">
+            {{ scannerError }}
+          </v-alert>
+        </v-card-text>
+
+        <v-card-actions class="pa-6 pt-2">
+          <v-btn variant="text" @click="showScanner = false">Cerrar</v-btn>
+          <v-spacer />
+          <v-btn color="primary" @click="buscarManual">
+            <v-icon start>mdi-magnify</v-icon>
+            Buscar
           </v-btn>
         </v-card-actions>
       </v-card>

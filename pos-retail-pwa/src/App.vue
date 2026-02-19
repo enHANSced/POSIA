@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import AsistenteIADrawer from '@/components/ia/AsistenteIADrawer.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -15,6 +16,7 @@ onMounted(async () => {
 // Estado del drawer
 const drawer = ref(true)
 const rail = ref(false)
+const iaDrawer = ref(false)
 
 // Items de navegación
 const navItems = [
@@ -74,6 +76,10 @@ async function handleLogout() {
           <v-badge color="error" content="3" overlap>
             <v-icon>mdi-bell-outline</v-icon>
           </v-badge>
+        </v-btn>
+
+        <v-btn icon variant="text" class="neo-btn-icon mr-2" @click="iaDrawer = true">
+          <v-icon>mdi-robot-happy-outline</v-icon>
         </v-btn>
 
         <!-- Menú de usuario -->
@@ -142,6 +148,8 @@ async function handleLogout() {
       <v-main>
         <router-view />
       </v-main>
+
+      <AsistenteIADrawer v-model="iaDrawer" />
     </template>
 
     <!-- Login/Guest content -->

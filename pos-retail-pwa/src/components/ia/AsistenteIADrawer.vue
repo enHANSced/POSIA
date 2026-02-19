@@ -76,6 +76,13 @@ async function enviarSugerencia(sugerencia: string) {
   await enviar()
 }
 
+function manejarTecladoEnvio(event: KeyboardEvent) {
+  if (event.key !== 'Enter') return
+  if (event.shiftKey) return
+  event.preventDefault()
+  void enviar()
+}
+
 async function cargarAlAbrir() {
   if (!model.value) return
   await iaStore.cargarConversaciones()
@@ -215,6 +222,7 @@ watch(
         hide-details
         placeholder="Preguntá algo al asistente..."
         :disabled="iaStore.enviando"
+        @keydown="manejarTecladoEnvio"
       />
 
       <div class="d-flex justify-end mt-2">

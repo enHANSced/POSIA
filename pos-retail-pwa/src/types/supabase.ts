@@ -334,6 +334,23 @@ export interface Database {
         Args: { p_product_id: string; p_quantity: number }
         Returns: undefined
       }
+      procesar_venta_completa: {
+        Args: {
+          p_items: Json
+          p_total: number
+          p_subtotal: number
+          p_tax_amount: number
+          p_discount?: number
+          p_payment_method?: string
+          p_notes?: string | null
+          p_seller_id?: string
+        }
+        Returns: Json
+      }
+      obtener_contexto_ia: {
+        Args: Record<string, never>
+        Returns: Json
+      }
     }
     Enums: Record<string, never>
     CompositeTypes: Record<string, never>

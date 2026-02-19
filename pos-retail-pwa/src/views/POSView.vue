@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useProductosStore } from '@/stores/productos'
 import { useCarritoStore } from '@/stores/carrito'
-import { createSale } from '@/services/database'
+import { procesarVenta } from '@/services/edge-functions'
 
 const productosStore = useProductosStore()
 const carritoStore = useCarritoStore()
@@ -49,12 +49,14 @@ async function finalizarVenta() {
   saleSuccess.value = false
 
   try {
-    await createSale(
-      carritoStore.getSaleItems(),
-      carritoStore.getTotal(),
-      carritoStore.paymentMethod,
-      carritoStore.discount
-    )
+    await procesarVenta({
+      items: carritoStore.getSaleItems(),
+      total: carritoStore.getTotal(),
+      subtotal: carritoStore.getSubtotal(),
+      tax_amount: carritoStore.getTax(),
+      discount: carritoStore.discount,
+      payment_method: carritoStore.paymentMethod,
+    })
     saleSuccess.value = true
     carritoStore.clearCart()
     await productosStore.fetchProducts()

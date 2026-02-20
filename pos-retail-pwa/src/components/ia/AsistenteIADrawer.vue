@@ -48,8 +48,8 @@ function parsearRespuestaIA(texto: string): Array<{ tipo: 'titulo' | 'bullet' | 
     .filter(Boolean)
 
   return lineas.map((linea) => {
-    if (/^\d+[\.)]\s+/.test(linea)) {
-      return { tipo: 'bullet' as const, valor: linea.replace(/^\d+[\.)]\s+/, '') }
+    if (/^\d+[.)]\s+/.test(linea)) {
+      return { tipo: 'bullet' as const, valor: linea.replace(/^\d+[.)]\s+/, '') }
     }
 
     if (/^[-•]\s+/.test(linea)) {

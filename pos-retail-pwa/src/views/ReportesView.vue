@@ -151,7 +151,7 @@ function parsearInsight(texto: string): Array<{ tipo: 'bullet' | 'texto'; valor:
     .filter(Boolean)
 
   return lineas.map(linea => {
-    if (/^[-*•–]\s+/.test(linea) || /^\d+[.)\-]\s+/.test(linea)) {
+    if (/^[-*•–]\s+/.test(linea) || /^\d+[.)-]\s+/.test(linea)) {
       return { tipo: 'bullet' as const, valor: linea.replace(/^[-*•–\d.)-]\s*/, '') }
     }
     return { tipo: 'texto' as const, valor: linea }

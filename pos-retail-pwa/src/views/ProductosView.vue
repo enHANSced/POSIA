@@ -41,6 +41,7 @@ const scannerStatus = ref('')
 const scannerError = ref('')
 const analizandoImagen = ref(false)
 const analisisError = ref('')
+const fileInput = ref(null)
 
 // Cargar datos
 onMounted(async () => {
@@ -366,194 +367,307 @@ function getCategoryName(categoryId: string | null): string {
     </v-card>
 
     <!-- Diálogo de formulario neomórfico -->
-    <v-dialog v-model="showForm" max-width="600" persistent>
-      <v-card>
-        <div class="pa-6 d-flex align-center">
-          <div class="neo-circle-sm mr-3" :style="editingProduct
-            ? 'background: linear-gradient(135deg, #FFA726, #FFB74D);'
-            : 'background: linear-gradient(135deg, #4A7BF7, #6B93FF);'">
-            <v-icon color="white" size="20">{{ editingProduct ? 'mdi-pencil' : 'mdi-plus' }}</v-icon>
+    <v-dialog v-model="showForm" max-width="900" persistent>
+      <v-card class="neo-card pb-4">
+        <!-- Header con gradiente sutil -->
+        <div class="pa-4 pa-md-6 d-flex align-center justify-space-between" 
+             style="background: linear-gradient(180deg, rgba(255,255,255,0.05) 0%, transparent 100%);">
+          <div class="d-flex align-center">
+            <div class="neo-circle-sm mr-4" :style="editingProduct
+              ? 'background: linear-gradient(135deg, #FFA726, #FFB74D); box-shadow: 0 4px 12px rgba(255, 167, 38, 0.4);'
+              : 'background: linear-gradient(135deg, #4A7BF7, #6B93FF); box-shadow: 0 4px 12px rgba(74, 123, 247, 0.4);'">
+              <v-icon color="white" size="24">{{ editingProduct ? 'mdi-pencil' : 'mdi-plus' }}</v-icon>
+            </div>
+            <div>
+              <h3 class="text-h5 font-weight-bold text-high-emphasis">
+                {{ editingProduct ? 'Editar Producto' : 'Nuevo Producto' }}
+              </h3>
+              <div class="text-caption text-medium-emphasis">
+                {{ editingProduct ? 'Modificá la información del producto' : 'Agregá un nuevo ítem al inventario' }}
+              </div>
+            </div>
           </div>
-          <h3 class="text-h6 font-weight-bold">
-            {{ editingProduct ? 'Editar Producto' : 'Nuevo Producto' }}
-          </h3>
+          <v-btn icon variant="text" @click="showForm = false" class="neo-flat ml-2">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
         </div>
 
-        <v-card-text class="px-6 pb-2">
-          <v-form v-model="formValid">
+        <v-card-text class="px-4 px-md-6 py-2">
+          <v-form v-model="formValid" ref="formRef">
             <v-row>
-              <v-col cols="12">
-                <v-text-field
-                  v-model="form.name"
-                  label="Nombre del producto *"
-                  :rules="[v => !!v || 'Requerido']"
-                />
-              </v-col>
+              <!-- Columna Izquierda: Imagen + IA -->
+              <v-col cols="12" md="4">
+                <div class="d-flex flex-column align-center">
+                  <!-- Area de carga de imagen mejorada -->
+                  <v-hover v-slot="{ isHovering, props }">
+                    <div 
+                      class="neo-pressed d-flex align-center justify-center flex-column position-relative overflow-hidden mb-4"
+                      style="width: 100%; aspect-ratio: 1; border-radius: 20px; cursor: pointer; transition: all 0.3s ease;"
+                      :style="isHovering ? 'border: 2px solid var(--v-primary-base);' : 'border: 2px dashed transparent;'"
+                      v-bind="props"
+                      @click="$refs.fileInput.$el.querySelector('input').click()"
+                    >
+                      <v-img
+                        v-if="imagePreview || form.image_url"
+                        :src="imagePreview || form.image_url"
+                        width="100%"
+                        height="100%"
+                        cover
+                        class="rounded-lg"
+                      >
+                        <template #placeholder>
+                           <div class="d-flex align-center justify-center fill-height bg-grey-lighten-2">
+                              <v-progress-circular indeterminate color="primary"></v-progress-circular>
+                           </div>
+                        </template>
+                      </v-img>
+                      
+                      <div v-else class="text-center pa-4">
+                         <v-icon size="48" color="primary" class="mb-2">mdi-camera-plus</v-icon>
+                         <div class="text-body-2 font-weight-bold text-medium-emphasis">Subir Imagen</div>
+                         <div class="text-caption text-disabled">Click para seleccionar</div>
+                      </div>
 
-              <v-col cols="6">
-                <v-text-field
-                  v-model="form.barcode"
-                  label="Código de barras"
-                  prepend-inner-icon="mdi-barcode"
-                >
-                  <template #append>
-                    <v-btn icon size="small" variant="text" @click="abrirEscaner">
-                      <v-icon size="18">mdi-barcode-scan</v-icon>
-                    </v-btn>
-                  </template>
-                </v-text-field>
-              </v-col>
+                      <!-- Overlay de hover para cambiar imagen -->
+                      <div v-if="(imagePreview || form.image_url) && isHovering" 
+                           class="position-absolute d-flex align-center justify-center"
+                           style="inset: 0; background: rgba(0,0,0,0.3);">
+                        <v-icon color="white" size="32">mdi-camera-retake</v-icon>
+                      </div>
+                    </div>
+                  </v-hover>
 
-              <v-col cols="6">
-                <v-text-field
-                  v-model="form.sku"
-                  label="SKU"
-                />
-              </v-col>
+                  <!-- Input file oculto pero funcional -->
+                  <v-file-input
+                    ref="fileInput"
+                    v-model="selectedImageFile"
+                    accept="image/*"
+                    class="d-none"
+                    @update:model-value="onImageSelected"
+                    @click:clear="selectedImageFile = null; imagePreview = ''"
+                  ></v-file-input>
 
-              <v-col cols="12">
-                <v-select
-                  v-model="form.category_id"
-                  :items="categories"
-                  item-title="name"
-                  item-value="id"
-                  label="Categoría"
-                  clearable
-                />
-              </v-col>
-
-              <v-col cols="6">
-                <v-text-field
-                  v-model.number="form.price"
-                  label="Precio de venta *"
-                  type="number"
-                  prefix="L"
-                  :rules="[v => v > 0 || 'Debe ser mayor a 0']"
-                />
-              </v-col>
-
-              <v-col cols="6">
-                <v-text-field
-                  v-model.number="form.cost"
-                  label="Costo"
-                  type="number"
-                  prefix="L"
-                />
-              </v-col>
-
-              <v-col cols="12">
-                <v-file-input
-                  label="Imagen del producto"
-                  accept="image/*"
-                  prepend-icon="mdi-camera"
-                  show-size
-                  clearable
-                  @update:model-value="onImageSelected"
-                />
-              </v-col>
-
-              <v-col cols="12">
-                <div class="d-flex align-center ga-2">
+                  <!-- Botón IA Mejorado -->
                   <v-btn
-                    color="primary"
-                    variant="outlined"
+                    block
+                    height="48"
+                    class="neo-raised mb-4"
                     :loading="analizandoImagen"
                     @click="autocompletarConIA"
+                    color="primary"
+                    variant="flat"
+                    style="border-radius: 12px; background: linear-gradient(90deg, #4A90E2 0%, #007AFF 100%);"
                   >
-                    <v-icon start>mdi-auto-fix</v-icon>
-                    Rellenar con IA
+                    <v-icon start size="22" class="mr-2">mdi-sparkles</v-icon>
+                    <span class="font-weight-bold">Rellenar con IA</span>
                   </v-btn>
-                  <span class="text-caption text-medium-emphasis">
-                    Usá una foto del empaque para autocompletar campos.
-                  </span>
-                </div>
-                <v-alert v-if="analisisError" type="error" density="compact" class="mt-2">
-                  {{ analisisError }}
-                </v-alert>
-              </v-col>
+                  
+                  <v-alert v-if="analisisError" type="error" variant="tonal" density="compact" class="mb-4 text-caption w-100">
+                    {{ analisisError }}
+                  </v-alert>
 
-              <v-col v-if="imagePreview || form.image_url" cols="12">
-                <div class="neo-card-pressed pa-3 d-flex align-center">
-                  <v-img
-                    :src="imagePreview || form.image_url"
-                    width="96"
-                    height="72"
-                    cover
-                    class="rounded-lg mr-3"
-                  />
-                  <div class="text-caption text-medium-emphasis flex-grow-1">
-                    Vista previa de imagen
+                  <div class="text-caption text-center text-medium-emphasis px-2">
+                    <v-icon size="14" class="mr-1" color="primary">mdi-information-outline</v-icon>
+                    Subí una foto del producto y dejá que la IA complete los datos.
                   </div>
-                  <v-btn icon variant="text" size="small" @click="limpiarImagen">
-                    <v-icon size="18">mdi-delete-outline</v-icon>
-                  </v-btn>
+                  
+                  <!-- URL imagen alternativo -->
+                   <v-expand-transition>
+                    <div v-if="!imagePreview && !form.image_url" class="mt-4 w-100">
+                      <v-text-field
+                        v-model="form.image_url"
+                        label="O pegar URL de imagen"
+                        density="compact"
+                        variant="outlined"
+                        hide-details
+                        prepend-inner-icon="mdi-link"
+                        class="text-body-2"
+                      />
+                    </div>
+                   </v-expand-transition>
                 </div>
               </v-col>
 
-              <v-col cols="12">
-                <v-text-field
-                  v-model="form.image_url"
-                  label="URL de imagen"
-                  prepend-inner-icon="mdi-image-outline"
-                />
-              </v-col>
+              <!-- Columna Derecha: Formulario -->
+              <v-col cols="12" md="8">
+                <div class="pl-md-4">
+                  <!-- Sección: Información Básica -->
+                  <div class="mb-4">
+                    <h4 class="text-subtitle-2 font-weight-bold text-primary mb-3 d-flex align-center">
+                      <v-icon size="18" start>mdi-information</v-icon> Información Básica
+                    </h4>
+                    
+                    <v-row dense>
+                      <v-col cols="12">
+                        <v-text-field
+                          v-model="form.name"
+                          label="Nombre del producto *"
+                          variant="outlined"
+                          bg-color="surface"
+                          density="comfortable"
+                          :rules="[v => !!v || 'El nombre es requerido']"
+                        />
+                      </v-col>
+                      
+                      <v-col cols="12" sm="6">
+                        <v-text-field
+                          v-model="form.barcode"
+                          label="Código de barras"
+                          variant="outlined"
+                          density="comfortable"
+                          prepend-inner-icon="mdi-barcode"
+                        >
+                          <template #append-inner>
+                            <v-fade-transition>
+                              <v-btn v-if="!form.barcode" icon size="small" variant="text" color="primary" @click="abrirEscaner" title="Escanear">
+                                <v-icon>mdi-barcode-scan</v-icon>
+                              </v-btn>
+                            </v-fade-transition>
+                          </template>
+                        </v-text-field>
+                      </v-col>
+                      
+                      <v-col cols="12" sm="6">
+                        <v-text-field
+                          v-model="form.sku"
+                          label="SKU (Opcional)"
+                          variant="outlined"
+                          density="comfortable"
+                          prepend-inner-icon="mdi-identifier"
+                        />
+                      </v-col>
 
-              <v-col cols="4">
-                <v-text-field
-                  v-model.number="form.stock"
-                  label="Stock actual"
-                  type="number"
-                />
-              </v-col>
+                      <v-col cols="12" sm="6">
+                        <v-select
+                          v-model="form.category_id"
+                          :items="categories"
+                          item-title="name"
+                          item-value="id"
+                          label="Categoría"
+                          variant="outlined"
+                          density="comfortable"
+                          prepend-inner-icon="mdi-shape"
+                        />
+                      </v-col>
 
-              <v-col cols="4">
-                <v-text-field
-                  v-model.number="form.min_stock"
-                  label="Stock mínimo"
-                  type="number"
-                />
-              </v-col>
+                      <v-col cols="12" sm="6">
+                        <v-switch
+                          v-model="form.active"
+                          color="success"
+                          label="Producto Activo"
+                          hide-details
+                          inset
+                          class="mt-1 ml-2"
+                        ></v-switch>
+                      </v-col>
+                    </v-row>
+                  </div>
 
-              <v-col cols="4">
-                <v-text-field
-                  v-model.number="form.tax_rate"
-                  label="ISV %"
-                  type="number"
-                  suffix="%"
-                />
-              </v-col>
+                  <v-divider class="mb-4 border-opacity-50"></v-divider>
 
-              <v-col cols="12">
-                <v-textarea
-                  v-model="form.description"
-                  label="Descripción"
-                  rows="3"
-                />
-              </v-col>
+                  <!-- Sección: Precios e Inventario -->
+                  <div class="mb-4">
+                    <h4 class="text-subtitle-2 font-weight-bold text-primary mb-3 d-flex align-center">
+                      <v-icon size="18" start>mdi-currency-usd</v-icon> Precio e Inventario
+                    </h4>
+                    
+                    <v-row dense>
+                      <v-col cols="6" sm="4">
+                        <v-text-field
+                          v-model.number="form.price"
+                          label="Precio Venta *"
+                          type="number"
+                          prefix="L"
+                          variant="outlined"
+                          density="comfortable"
+                          class="font-weight-bold"
+                          :rules="[v => v >= 0 || 'Inválido']"
+                        />
+                      </v-col>
 
-              <v-col cols="12">
-                <v-switch
-                  v-model="form.active"
-                  label="Producto activo"
-                  color="primary"
-                  inset
-                />
+                      <v-col cols="6" sm="4">
+                        <v-text-field
+                          v-model.number="form.cost"
+                          label="Costo Unitario"
+                          type="number"
+                          prefix="L"
+                          variant="outlined"
+                          density="comfortable"
+                        />
+                      </v-col>
+
+                      <v-col cols="12" sm="4">
+                        <v-text-field
+                          v-model.number="form.tax_rate"
+                          label="ISV"
+                          type="number"
+                          suffix="%"
+                          variant="outlined"
+                          density="comfortable"
+                        />
+                      </v-col>
+
+                      <v-col cols="6" sm="6">
+                        <v-text-field
+                          v-model.number="form.stock"
+                          label="Stock Actual"
+                          type="number"
+                          prepend-inner-icon="mdi-package-variant"
+                          variant="outlined"
+                          density="comfortable"
+                        />
+                      </v-col>
+
+                      <v-col cols="6" sm="6">
+                        <v-text-field
+                          v-model.number="form.min_stock"
+                          label="Stock Mínimo"
+                          type="number"
+                          prepend-inner-icon="mdi-alert-circle-outline"
+                          variant="outlined"
+                          density="comfortable"
+                        />
+                      </v-col>
+                    </v-row>
+                  </div>
+                  
+                  <!-- Descripción -->
+                  <v-textarea
+                    v-model="form.description"
+                    label="Descripción detallada"
+                    rows="2"
+                    variant="outlined"
+                    auto-grow
+                    density="comfortable"
+                  ></v-textarea>
+                </div>
               </v-col>
             </v-row>
           </v-form>
         </v-card-text>
 
-        <v-card-actions class="pa-6 pt-2">
+        <v-card-actions class="px-6 py-4">
           <v-spacer />
-          <v-btn variant="text" @click="showForm = false">Cancelar</v-btn>
+          <v-btn 
+            size="large"
+            variant="text" 
+            class="text-none font-weight-regular mr-2"
+            @click="showForm = false"
+          >
+            Cancelar
+          </v-btn>
           <v-btn
+            size="large"
             color="primary"
+            class="neo-raised text-none px-6 font-weight-bold"
+            rounded="lg"
             :loading="saving"
             :disabled="!formValid"
             @click="saveProduct"
+            elevation="2"
           >
-            <v-icon start>mdi-content-save</v-icon>
-            Guardar
+            <v-icon start>mdi-check</v-icon>
+            {{ editingProduct ? 'Guardar Cambios' : 'Crear Producto' }}
           </v-btn>
         </v-card-actions>
       </v-card>

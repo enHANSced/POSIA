@@ -2,9 +2,17 @@
 import { ref, onMounted } from 'vue'
 import { getSalesSummary } from '@/services/database'
 import { supabase } from '@/services/supabase'
+import { enviarMensajeIA } from '@/services/edge-functions'
+import { useAuthStore } from '@/stores/auth'
 
 const loading = ref(false)
 const dateRange = ref<'today' | 'week' | 'month' | 'custom'>('today')
+const authStore = useAuthStore()
+
+// IA Insights
+const iaInsight = ref<string | null>(null)
+const iaAnalizando = ref(false)
+const iaError = ref<string | null>(null)
 
 // Estadísticas
 const stats = ref({
@@ -100,6 +108,55 @@ async function loadTopProducts() {
     console.error('Error cargando productos top:', err)
   }
 }
+
+const RANGO_LABELS: Record<string, string> = {
+  today: 'hoy',
+  week: 'los últimos 7 días',
+  month: 'los últimos 30 días',
+}
+
+async function analizarConIA() {
+  if (iaAnalizando.value) return
+  iaAnalizando.value = true
+  iaError.value = null
+  iaInsight.value = null
+
+  const rango = RANGO_LABELS[dateRange.value] || 'el período seleccionado'
+  const prompt = `Analiza el desempeño del negocio para ${rango}:
+- Ventas totales: ${stats.value.totalSales}
+- Ingresos: L ${stats.value.totalRevenue.toFixed(2)}
+- ISV recaudado: L ${stats.value.totalTax.toFixed(2)}
+- Ticket promedio: L ${stats.value.averageSale.toFixed(2)}
+${lowStockProducts.value.length > 0 ? `- Productos con stock bajo: ${lowStockProducts.value.map((p: any) => p.name).join(', ')}` : ''}
+
+Proporciona 3 insights concretos y 2 recomendaciones de acción inmediata para mejorar las ventas. Sé breve y directo.`
+
+  try {
+    const response = await enviarMensajeIA({ mensaje: prompt })
+    iaInsight.value = response.message
+  } catch (err) {
+    iaError.value = 'No se pudo obtener el análisis. Intentá de nuevo.'
+    console.error(err)
+  } finally {
+    iaAnalizando.value = false
+  }
+}
+
+function parsearInsight(texto: string): Array<{ tipo: 'bullet' | 'texto'; valor: string }> {
+  const lineas = texto
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+
+  return lineas.map(linea => {
+    if (/^[-*•–]\s+/.test(linea) || /^\d+[.)\-]\s+/.test(linea)) {
+      return { tipo: 'bullet' as const, valor: linea.replace(/^[-*•–\d.)-]\s*/, '') }
+    }
+    return { tipo: 'texto' as const, valor: linea }
+  })
+}
 </script>
 
 <template>
@@ -176,6 +233,64 @@ async function loadTopProducts() {
           <p class="text-body-2 text-medium-emphasis">Ticket Promedio</p>
           <div class="neo-stat-bar" style="--bar-color: #FFA726;"></div>
         </div>
+      </v-col>
+    </v-row>
+
+    <!-- IA Insights Section -->
+    <v-row v-if="authStore.isAdmin" class="mb-5">
+      <v-col cols="12">
+        <v-card class="neo-animate-in">
+          <v-card-text class="pa-5">
+            <div class="d-flex align-center mb-4">
+              <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
+                <v-icon color="white" size="20">mdi-robot-happy-outline</v-icon>
+              </div>
+              <div>
+                <h3 class="text-subtitle-1 font-weight-bold mb-0">Análisis con IA</h3>
+                <p class="text-caption text-medium-emphasis mb-0">Insights automáticos del período seleccionado</p>
+              </div>
+              <v-spacer />
+              <v-btn
+                color="primary"
+                variant="outlined"
+                size="small"
+                :loading="iaAnalizando"
+                @click="analizarConIA"
+              >
+                <v-icon start>mdi-sparkles</v-icon>
+                Analizar
+              </v-btn>
+            </div>
+
+            <!-- Resultado del análisis -->
+            <div v-if="iaInsight" class="neo-card-pressed pa-4">
+              <div
+                v-for="(linea, i) in parsearInsight(iaInsight)"
+                :key="i"
+                class="mb-1"
+              >
+                <div v-if="linea.tipo === 'bullet'" class="d-flex align-start">
+                  <v-icon size="14" color="primary" class="mt-1 mr-2 flex-shrink-0">mdi-circle-small</v-icon>
+                  <span class="text-body-2">{{ linea.valor }}</span>
+                </div>
+                <p v-else class="text-body-2 font-weight-medium mb-0">{{ linea.valor }}</p>
+              </div>
+            </div>
+
+            <!-- Error -->
+            <v-alert v-else-if="iaError" type="error" density="compact">
+              {{ iaError }}
+            </v-alert>
+
+            <!-- Estado inicial -->
+            <div v-else class="text-center py-5">
+              <v-icon size="36" color="grey-lighten-1" class="mb-2">mdi-chart-areaspline</v-icon>
+              <p class="text-body-2 text-medium-emphasis mb-0">
+                Haz clic en <strong>Analizar</strong> para obtener insights y recomendaciones de acción del período.
+              </p>
+            </div>
+          </v-card-text>
+        </v-card>
       </v-col>
     </v-row>
 

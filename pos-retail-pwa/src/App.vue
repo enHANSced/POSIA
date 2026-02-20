@@ -1,20 +1,22 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useDisplay } from 'vuetify'
 import { useAuthStore } from '@/stores/auth'
 import AsistenteIADrawer from '@/components/ia/AsistenteIADrawer.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
+const { mobile } = useDisplay()
 
 // Inicializar autenticación al montar la app
 onMounted(async () => {
   await authStore.initialize()
 })
 
-// Estado del drawer
-const drawer = ref(true)
+// Estado del drawer — cerrado por defecto en móvil
+const drawer = ref(!mobile.value)
 const rail = ref(false)
 const iaDrawer = ref(false)
 
@@ -62,8 +64,8 @@ async function handleLogout() {
     <template v-else-if="authStore.isAuthenticated">
       <!-- App Bar Neomórfica -->
       <v-app-bar flat class="neo-appbar px-2">
-        <v-btn icon variant="text" @click="rail = !rail" class="neo-btn-icon">
-          <v-icon>{{ rail ? 'mdi-menu' : 'mdi-menu-open' }}</v-icon>
+        <v-btn icon variant="text" @click="mobile ? (drawer = !drawer) : (rail = !rail)" class="neo-btn-icon">
+          <v-icon>{{ (mobile ? !drawer : !rail) ? 'mdi-menu' : 'mdi-menu-open' }}</v-icon>
         </v-btn>
 
         <v-toolbar-title class="d-flex align-center">
@@ -120,9 +122,10 @@ async function handleLogout() {
       <!-- Navigation Drawer Neomórfico -->
       <v-navigation-drawer
         v-model="drawer"
-        :rail="rail"
-        permanent
-        @click="rail = false"
+        :rail="!mobile && rail"
+        :permanent="!mobile"
+        :temporary="mobile"
+        @click="!mobile && rail ? (rail = false) : null"
       >
         <v-list nav density="compact" class="pa-3">
           <v-list-item

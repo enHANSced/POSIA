@@ -254,7 +254,7 @@ async function changePassword() {
 
               <v-btn
                 type="submit"
-                color="warning"
+                color="primary"
                 :loading="saving"
                 :disabled="!passwordForm.newPassword || !passwordForm.confirmPassword"
                 block

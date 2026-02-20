@@ -62,6 +62,16 @@ function getStatusColor(status: string | null): string {
   }
 }
 
+function getStatusLabel(status: string | null): string {
+  switch (status) {
+    case 'completed': return 'Completado'
+    case 'pending': return 'Pendiente'
+    case 'refunded': return 'Reembolsado'
+    case 'cancelled': return 'Cancelado'
+    default: return status || 'Desconocido'
+  }
+}
+
 function getPaymentIcon(method: string): string {
   switch (method) {
     case 'efectivo': return 'mdi-cash'
@@ -164,7 +174,7 @@ const saleItems = computed(() => {
 
           <template #item.status="{ item }">
             <v-chip :color="getStatusColor(item.status)" size="small" variant="tonal">
-              {{ item.status }}
+              {{ getStatusLabel(item.status) }}
             </v-chip>
           </template>
 
@@ -191,7 +201,7 @@ const saleItems = computed(() => {
         <v-card-text class="px-6 pb-2">
           <div class="d-flex justify-space-between mb-3">
             <v-chip :color="getStatusColor(selectedSale.status)" size="small" variant="tonal">
-              {{ selectedSale.status }}
+              {{ getStatusLabel(selectedSale.status) }}
             </v-chip>
             <v-chip variant="tonal" size="small">
               <v-icon start size="16">{{ getPaymentIcon(selectedSale.payment_method) }}</v-icon>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useDisplay } from 'vuetify'
 import { useProductosStore } from '@/stores/productos'
 import { useCarritoStore } from '@/stores/carrito'
 import { useAuthStore } from '@/stores/auth'
@@ -12,9 +13,12 @@ import type { FacturaData } from '@/components/pos/FacturaRecibo.vue'
 const productosStore = useProductosStore()
 const carritoStore = useCarritoStore()
 const authStore = useAuthStore()
+const { mobile } = useDisplay()
 
 const searchQuery = ref('')
 const showScanner = ref(false)
+const showMobileCart = ref(false)
+const lastAddedId = ref<string | null>(null)
 const scannerManualCode = ref('')
 const scannerStatus = ref('')
 const scannerError = ref('')
@@ -109,8 +113,46 @@ const productosFiltrados = computed(() => {
   )
 })
 
+// Colores por categoría para placeholder de productos sin imagen
+const CATEGORY_COLORS: Record<string, string> = {
+  bebida: 'linear-gradient(135deg,#42A5F5,#1976D2)',
+  abarrot: 'linear-gradient(135deg,#66BB6A,#388E3C)',
+  limpiez: 'linear-gradient(135deg,#26C6DA,#00838F)',
+  snack: 'linear-gradient(135deg,#FFA726,#E65100)',
+  lácteo: 'linear-gradient(135deg,#AB47BC,#6A1B9A)',
+  electr: 'linear-gradient(135deg,#EF5350,#B71C1C)',
+  planta: 'linear-gradient(135deg,#26A69A,#00695C)',
+}
+
+function getCategoryGradient(producto: any): string {
+  const cat = (producto.categories?.name || producto.name || '').toLowerCase()
+  for (const [key, val] of Object.entries(CATEGORY_COLORS)) {
+    if (cat.includes(key)) return val
+  }
+  // fallback: hash del nombre
+  let hash = 0
+  for (let i = 0; i < cat.length; i++) hash = cat.charCodeAt(i) + ((hash << 5) - hash)
+  const palette = [
+    'linear-gradient(135deg,#4A7BF7,#3A63CC)',
+    'linear-gradient(135deg,#66BB6A,#43A047)',
+    'linear-gradient(135deg,#FFA726,#FB8C00)',
+    'linear-gradient(135deg,#AB47BC,#8E24AA)',
+    'linear-gradient(135deg,#42A5F5,#1E88E5)',
+  ]
+  return palette[Math.abs(hash) % palette.length]
+}
+
+function isLowStock(producto: any): boolean {
+  const stock = producto.stock ?? 0
+  const min = producto.min_stock ?? 5
+  return stock > 0 && stock <= min
+}
+
 function agregarAlCarrito(producto: any) {
   carritoStore.addItem(producto)
+  // Feedback visual: animar la tarjeta por 600ms
+  lastAddedId.value = producto.id
+  setTimeout(() => { lastAddedId.value = null }, 600)
 }
 
 async function handleBarcode(code: string) {
@@ -264,7 +306,7 @@ function formatHNL(value: number): string {
           <v-card-text class="pa-5">
             <!-- Header -->
             <div class="d-flex align-center mb-5">
-              <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
+              <div class="neo-circle-sm mr-3 d-none d-sm-flex" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
                 <v-icon color="white" size="20">mdi-point-of-sale</v-icon>
               </div>
               <h2 class="text-h6 font-weight-bold">Punto de Venta</h2>
@@ -276,7 +318,7 @@ function formatHNL(value: number): string {
                 @click="showScanner = true"
               >
                 <v-icon start>mdi-barcode-scan</v-icon>
-                Escanear
+                <span class="d-none d-sm-inline">Escanear</span>
               </v-btn>
             </div>
 
@@ -300,15 +342,36 @@ function formatHNL(value: number): string {
               >
                 <v-card
                   class="producto-card"
+                  :class="{
+                    'producto-card-low-stock': isLowStock(producto),
+                    'producto-card-added': lastAddedId === producto.id
+                  }"
                   :disabled="(producto.stock || 0) <= 0"
+                  role="button"
+                  tabindex="0"
+                  :aria-label="`Agregar ${producto.name} al carrito, precio ${formatHNL(producto.price)}`"
                   @click="agregarAlCarrito(producto)"
+                  @keydown.enter="agregarAlCarrito(producto)"
+                  @keydown.space.prevent="agregarAlCarrito(producto)"
                 >
+                  <!-- Imagen del producto o placeholder por categoría -->
                   <v-img
-                    :src="producto.image_url || 'https://placehold.co/150x100?text=Producto'"
+                    v-if="producto.image_url"
+                    :src="producto.image_url"
                     height="100"
                     cover
                     class="neo-rounded-sm"
                   />
+                  <div
+                    v-else
+                    class="producto-placeholder d-flex align-center justify-center"
+                    :style="{ background: getCategoryGradient(producto) }"
+                  >
+                    <span class="text-h5 font-weight-bold" style="color: rgba(255,255,255,0.9)">
+                      {{ producto.name.charAt(0).toUpperCase() }}
+                    </span>
+                  </div>
+
                   <v-card-text class="pa-3">
                     <div class="text-subtitle-2 text-truncate font-weight-medium">
                       {{ producto.name }}
@@ -318,7 +381,7 @@ function formatHNL(value: number): string {
                         {{ formatHNL(producto.price) }}
                       </span>
                       <v-chip
-                        :color="(producto.stock || 0) > 5 ? 'success' : 'warning'"
+                        :color="(producto.stock || 0) <= 0 ? 'error' : isLowStock(producto) ? 'warning' : 'success'"
                         size="x-small"
                         variant="tonal"
                       >
@@ -822,6 +885,118 @@ function formatHNL(value: number): string {
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- === FAB móvil: muestra el carrito como bottom sheet === -->
+    <div v-if="mobile && carritoStore.items.length > 0" class="mobile-cart-fab d-flex d-md-none">
+      <v-btn
+        color="success"
+        size="large"
+        rounded="pill"
+        class="px-6 mobile-fab-btn"
+        elevation="4"
+        @click="showMobileCart = true"
+      >
+        <v-badge :content="carritoStore.getItemCount()" color="primary" inline class="mr-2">
+          <v-icon>mdi-cart</v-icon>
+        </v-badge>
+        <span class="text-body-1 font-weight-bold ml-1">
+          {{ formatHNL(carritoStore.getTotal()) }}
+        </span>
+        <v-icon end>mdi-chevron-up</v-icon>
+      </v-btn>
+    </div>
+
+    <!-- Bottom sheet del carrito para móvil -->
+    <v-bottom-sheet v-model="showMobileCart" max-height="80vh">
+      <v-card class="rounded-t-xl" style="border-radius: 24px 24px 0 0 !important;">
+        <!-- Handle -->
+        <div class="d-flex justify-center pt-3 pb-1">
+          <div style="width: 40px; height: 4px; background: rgba(0,0,0,0.15); border-radius: 4px;" />
+        </div>
+
+        <!-- Header -->
+        <div class="px-4 pb-2 d-flex align-center">
+          <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg,#66BB6A,#81C784);">
+            <v-icon color="white" size="18">mdi-cart</v-icon>
+          </div>
+          <span class="text-subtitle-1 font-weight-bold">Carrito</span>
+          <v-chip color="primary" variant="tonal" size="small" class="ml-2">
+            {{ carritoStore.getItemCount() }} items
+          </v-chip>
+          <v-spacer />
+          <v-btn icon size="small" variant="text" @click="showMobileCart = false">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+        </div>
+
+        <v-divider />
+
+        <!-- Lista de items -->
+        <div style="max-height: 40vh; overflow-y: auto;">
+          <v-list density="compact" class="pa-2">
+            <v-list-item
+              v-for="(item, index) in carritoStore.items"
+              :key="index"
+              class="mb-1 neo-flat pa-2"
+              rounded="lg"
+            >
+              <v-list-item-title class="text-body-2 font-weight-medium">{{ item.product.name }}</v-list-item-title>
+              <v-list-item-subtitle class="text-caption">{{ formatHNL(item.product.price) }} x {{ item.quantity }}</v-list-item-subtitle>
+              <template #append>
+                <div class="d-flex align-center">
+                  <v-btn icon size="x-small" variant="text" @click.stop="carritoStore.decrementItem(index)">
+                    <v-icon size="16">mdi-minus</v-icon>
+                  </v-btn>
+                  <span class="mx-1 text-body-2 font-weight-bold">{{ item.quantity }}</span>
+                  <v-btn icon size="x-small" variant="text" @click.stop="carritoStore.incrementItem(index)">
+                    <v-icon size="16">mdi-plus</v-icon>
+                  </v-btn>
+                  <v-btn icon size="x-small" color="error" variant="text" @click.stop="carritoStore.removeItem(index)">
+                    <v-icon size="16">mdi-delete-outline</v-icon>
+                  </v-btn>
+                </div>
+              </template>
+            </v-list-item>
+          </v-list>
+        </div>
+
+        <v-divider />
+
+        <!-- Totales y acción -->
+        <div class="pa-4">
+          <div class="d-flex justify-space-between text-body-2 mb-1">
+            <span class="text-medium-emphasis">Subtotal:</span>
+            <span>{{ formatHNL(carritoStore.getSubtotal()) }}</span>
+          </div>
+          <div class="d-flex justify-space-between text-body-2 mb-2">
+            <span class="text-medium-emphasis">ISV:</span>
+            <span>{{ formatHNL(carritoStore.getTax()) }}</span>
+          </div>
+          <div class="d-flex justify-space-between text-h6 font-weight-bold mb-4">
+            <span>Total:</span>
+            <span class="text-primary">{{ formatHNL(carritoStore.getTotal()) }}</span>
+          </div>
+          <div class="d-flex gap-3">
+            <v-btn color="error" variant="outlined" @click="carritoStore.clearCart(); showMobileCart = false">
+              <v-icon start>mdi-delete-outline</v-icon>
+              Limpiar
+            </v-btn>
+            <v-btn
+              color="success"
+              size="large"
+              flex="1"
+              block
+              class="ml-2"
+              @click="showMobileCart = false; showCheckout = true"
+            >
+              <v-icon start>mdi-cash-register</v-icon>
+              Cobrar
+            </v-btn>
+          </div>
+        </div>
+      </v-card>
+    </v-bottom-sheet>
+
   </v-container>
 </template>
 
@@ -829,15 +1004,44 @@ function formatHNL(value: number): string {
 .producto-card {
   cursor: pointer;
   transition: var(--neo-transition);
+  box-shadow: var(--neo-raised) !important;
+  user-select: none;
 }
 
 .producto-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
+  box-shadow: var(--neo-raised-lg) !important;
 }
 
-.producto-card:active {
+.producto-card:active,
+.producto-card.producto-card-added {
   box-shadow: var(--neo-pressed) !important;
-  transform: scale(0.98);
+  transform: scale(0.97);
+}
+
+/* Borde de advertencia para stock bajo */
+.producto-card-low-stock {
+  border-left: 3px solid rgb(var(--v-theme-warning)) !important;
+}
+
+/* Placeholder de imagen con color de categoría */
+.producto-placeholder {
+  height: 100px;
+  border-radius: var(--neo-radius-sm) var(--neo-radius-sm) 0 0;
+}
+
+/* FAB del carrito en móvil */
+.mobile-cart-fab {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+}
+
+.mobile-fab-btn {
+  box-shadow: 0 4px 12px rgba(102, 187, 106, 0.4) !important;
+  min-width: 200px;
 }
 
 .carrito-card {

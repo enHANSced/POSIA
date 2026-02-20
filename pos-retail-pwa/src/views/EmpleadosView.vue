@@ -209,6 +209,19 @@ function showNotification(text: string, color: string) {
   snackbar.value = true
 }
 
+// Sincronizar usuarios de auth sin perfil
+async function handleSincronizar() {
+  const result = await empleadosStore.sincronizar()
+  if (result.success) {
+    const msg = result.synced > 0
+      ? `Se sincronizaron ${result.synced} usuario(s) nuevos desde autenticación`
+      : 'Todos los perfiles ya están sincronizados'
+    showNotification(msg, result.synced > 0 ? 'success' : 'info')
+  } else {
+    showNotification((result as any).error || 'Error al sincronizar', 'error')
+  }
+}
+
 // Lifecycle
 let subscription: RealtimeChannel | null = null
 
@@ -235,13 +248,26 @@ onUnmounted(() => {
           Gestión de usuarios y roles del sistema
         </p>
       </div>
-      <v-btn
-        color="primary"
-        prepend-icon="mdi-account-plus"
-        @click="openCreateDialog"
-      >
-        Nuevo Empleado
-      </v-btn>
+      <div class="d-flex ga-2">
+        <v-btn
+          variant="outlined"
+          prepend-icon="mdi-sync"
+          :loading="empleadosStore.saving"
+          @click="handleSincronizar"
+        >
+          Sincronizar
+          <v-tooltip activator="parent" location="bottom">
+            Importa usuarios de autenticación que no tienen perfil en la tabla de empleados
+          </v-tooltip>
+        </v-btn>
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-account-plus"
+          @click="openCreateDialog"
+        >
+          Nuevo Empleado
+        </v-btn>
+      </div>
     </div>
 
     <!-- Estadísticas rápidas -->

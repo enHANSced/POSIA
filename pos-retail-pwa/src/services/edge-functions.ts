@@ -251,3 +251,30 @@ export async function crearEmpleado(request: CrearEmpleadoRequest): Promise<Crea
 
   return data as CrearEmpleadoResponse
 }
+
+export interface SincronizarEmpleadosResponse {
+  success: boolean
+  synced: number
+  message: string
+}
+
+/**
+ * Sincroniza usuarios huérfanos de auth.users → user_profiles.
+ * Útil si se crearon usuarios en el panel de Supabase sin que se
+ * generara el perfil correspondiente en user_profiles.
+ */
+export async function sincronizarEmpleados(): Promise<SincronizarEmpleadosResponse> {
+  const { data, error } = await supabase.functions.invoke('gestionar-empleados', {
+    body: { action: 'sync' },
+  })
+
+  if (error) {
+    throw new Error(error.message || 'Error al sincronizar empleados')
+  }
+
+  if (data?.error) {
+    throw new Error(data.error)
+  }
+
+  return data as SincronizarEmpleadosResponse
+}

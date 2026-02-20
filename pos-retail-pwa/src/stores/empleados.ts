@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, shallowRef, triggerRef } from 'vue'
 import type { UserProfile } from '@/types/supabase'
 import { fetchEmployees, updateEmployeeProfile, subscribeToEmployees } from '@/services/database'
-import { crearEmpleado } from '@/services/edge-functions'
+import { crearEmpleado, sincronizarEmpleados } from '@/services/edge-functions'
 import type { CrearEmpleadoRequest } from '@/services/edge-functions'
 
 export const useEmpleadosStore = defineStore('empleados', () => {
@@ -92,6 +92,28 @@ export const useEmpleadosStore = defineStore('empleados', () => {
     })
   }
 
+  /**
+   * Sincroniza usuarios que existen en auth pero no tienen perfil en user_profiles.
+   * Útil cuando se crean usuarios directamente en el panel de Supabase.
+   */
+  async function sincronizar() {
+    saving.value = true
+    error.value = null
+    try {
+      const result = await sincronizarEmpleados()
+      if (result.synced > 0) {
+        await cargarEmpleados()
+      }
+      return { success: true, synced: result.synced, message: result.message }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error al sincronizar empleados'
+      error.value = msg
+      return { success: false, synced: 0, error: msg }
+    } finally {
+      saving.value = false
+    }
+  }
+
   return {
     // Estado
     empleados,
@@ -109,5 +131,6 @@ export const useEmpleadosStore = defineStore('empleados', () => {
     actualizarEmpleado,
     toggleEstadoEmpleado,
     iniciarSuscripcion,
+    sincronizar,
   }
 })

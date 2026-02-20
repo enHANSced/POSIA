@@ -11,6 +11,8 @@ export interface ProcesarVentaRequest {
   discount?: number
   payment_method: 'efectivo' | 'tarjeta' | 'otro'
   notes?: string
+  customer_name?: string
+  customer_rtn?: string
 }
 
 export interface ProcesarVentaResponse {
@@ -21,6 +23,9 @@ export interface ProcesarVentaResponse {
     total: number
     items_count: number
   }
+  seller_name: string | null
+  customer_name: string | null
+  customer_rtn: string | null
   message: string
 }
 
@@ -38,11 +43,15 @@ export async function procesarVenta(request: ProcesarVentaRequest): Promise<Proc
       discount: request.discount ?? 0,
       payment_method: request.payment_method,
       notes: request.notes ?? null,
+      customer_name: request.customer_name ?? null,
+      customer_rtn: request.customer_rtn ?? null,
     },
   })
 
   if (error) {
-    throw new Error(error.message || 'Error al procesar la venta')
+    // Intentar extraer mensaje del body si existe
+    const msg = data?.error || error.message || 'Error al procesar la venta'
+    throw new Error(msg)
   }
 
   if (data?.error) {

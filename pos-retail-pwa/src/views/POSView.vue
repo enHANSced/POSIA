@@ -2,25 +2,65 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useProductosStore } from '@/stores/productos'
 import { useCarritoStore } from '@/stores/carrito'
+import { useAuthStore } from '@/stores/auth'
 import { procesarVenta } from '@/services/edge-functions'
+import type { ProcesarVentaResponse } from '@/services/edge-functions'
 import { Html5QrcodeScanner } from 'html5-qrcode'
+import FacturaRecibo from '@/components/pos/FacturaRecibo.vue'
+import type { FacturaData } from '@/components/pos/FacturaRecibo.vue'
 
 const productosStore = useProductosStore()
 const carritoStore = useCarritoStore()
+const authStore = useAuthStore()
 
 const searchQuery = ref('')
 const showScanner = ref(false)
-const showCheckout = ref(false)
-const processingPayment = ref(false)
-const saleSuccess = ref(false)
-const saleError = ref('')
 const scannerManualCode = ref('')
 const scannerStatus = ref('')
 const scannerError = ref('')
 
-let barcodeScanner: Html5QrcodeScanner | null = null
+// === CHECKOUT STATE ===
+const showCheckout = ref(false)
+const checkoutStep = ref<'payment' | 'cash' | 'card' | 'processing' | 'done'>('payment')
+const processingPayment = ref(false)
+const saleError = ref('')
 
-// Cargar productos y suscribir a realtime
+// Efectivo
+const montoRecibido = ref<number | null>(null)
+const cambio = computed(() => {
+  if (!montoRecibido.value) return 0
+  return Math.max(0, montoRecibido.value - carritoStore.getTotal())
+})
+const cashValid = computed(() => {
+  return montoRecibido.value !== null && montoRecibido.value >= carritoStore.getTotal()
+})
+
+// Montos rápidos para efectivo
+const montosRapidos = computed(() => {
+  const total = carritoStore.getTotal()
+  const rounded = Math.ceil(total / 100) * 100
+  const options = [rounded]
+  if (rounded + 100 <= total * 3) options.push(rounded + 100)
+  if (rounded + 200 <= total * 3) options.push(rounded + 200)
+  // Siempre un monto exacto
+  return [total, ...options.filter(v => v !== total)]
+})
+
+// Tarjeta — simulación
+const cardStep = ref<'input' | 'processing' | 'approved'>('input')
+const cardLast4 = ref('')
+const cardHolderName = ref('')
+
+// Datos opcionales cliente
+const customerName = ref('')
+const customerRtn = ref('')
+
+// Factura
+const showFactura = ref(false)
+const facturaData = ref<FacturaData | null>(null)
+const lastSaleResponse = ref<ProcesarVentaResponse | null>(null)
+
+let barcodeScanner: Html5QrcodeScanner | null = null
 let unsubscribe: (() => void) | null = null
 
 onMounted(async () => {
@@ -36,14 +76,26 @@ onUnmounted(() => {
 watch(showScanner, async (open) => {
   scannerStatus.value = ''
   scannerError.value = ''
-
   if (open) {
     await nextTick()
     await initScanner()
-    return
+  } else {
+    await clearScanner()
   }
+})
 
-  await clearScanner()
+// Reset checkout al abrir
+watch(showCheckout, (open) => {
+  if (open) {
+    checkoutStep.value = 'payment'
+    saleError.value = ''
+    montoRecibido.value = null
+    cardStep.value = 'input'
+    cardLast4.value = ''
+    cardHolderName.value = ''
+    customerName.value = ''
+    customerRtn.value = ''
+  }
 })
 
 // Productos filtrados
@@ -66,17 +118,14 @@ async function handleBarcode(code: string) {
   if (!barcode) return
 
   const product = await productosStore.getByBarcode(barcode)
-
   if (!product) {
     scannerError.value = 'No se encontró producto para ese código.'
     return
   }
-
   if ((product.stock || 0) <= 0) {
     scannerError.value = 'El producto está sin stock.'
     return
   }
-
   scannerError.value = ''
   scannerStatus.value = `Producto agregado: ${product.name}`
   carritoStore.addItem(product)
@@ -84,18 +133,14 @@ async function handleBarcode(code: string) {
 
 async function initScanner() {
   if (barcodeScanner) return
-
   try {
     barcodeScanner = new Html5QrcodeScanner(
       'pos-scanner-reader',
       { fps: 10, qrbox: { width: 260, height: 120 } },
       false
     )
-
     barcodeScanner.render(
-      async (decodedText) => {
-        await handleBarcode(decodedText)
-      },
+      async (decodedText) => { await handleBarcode(decodedText) },
       () => {}
     )
   } catch {
@@ -105,17 +150,40 @@ async function initScanner() {
 
 async function clearScanner() {
   if (!barcodeScanner) return
+  try { await barcodeScanner.clear() } catch {} finally { barcodeScanner = null }
+}
 
-  try {
-    await barcodeScanner.clear()
-  } catch {
-  } finally {
-    barcodeScanner = null
+function buscarManual() {
+  handleBarcode(scannerManualCode.value)
+}
+
+// === CHECKOUT FLOW ===
+function selectPaymentMethod(method: 'efectivo' | 'tarjeta') {
+  carritoStore.setPaymentMethod(method)
+  if (method === 'efectivo') {
+    checkoutStep.value = 'cash'
+    montoRecibido.value = null
+  } else {
+    checkoutStep.value = 'card'
+    cardStep.value = 'input'
   }
 }
 
-async function buscarManual() {
-  await handleBarcode(scannerManualCode.value)
+function setQuickAmount(amount: number) {
+  montoRecibido.value = amount
+}
+
+async function simulateCardPayment() {
+  if (!cardLast4.value || cardLast4.value.length < 4) return
+  cardStep.value = 'processing'
+
+  // Simular procesamiento de tarjeta (2-3 seg)
+  await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 1000))
+  cardStep.value = 'approved'
+
+  // Auto proceed after a second
+  await new Promise(resolve => setTimeout(resolve, 800))
+  await finalizarVenta()
 }
 
 async function finalizarVenta() {
@@ -123,29 +191,62 @@ async function finalizarVenta() {
 
   processingPayment.value = true
   saleError.value = ''
-  saleSuccess.value = false
+  checkoutStep.value = 'processing'
 
   try {
-    await procesarVenta({
+    const response = await procesarVenta({
       items: carritoStore.getSaleItems(),
       total: carritoStore.getTotal(),
       subtotal: carritoStore.getSubtotal(),
       tax_amount: carritoStore.getTax(),
       discount: carritoStore.discount,
       payment_method: carritoStore.paymentMethod,
+      customer_name: customerName.value || undefined,
+      customer_rtn: customerRtn.value || undefined,
     })
-    saleSuccess.value = true
+
+    lastSaleResponse.value = response
+    checkoutStep.value = 'done'
+
+    // Preparar datos de factura
+    facturaData.value = {
+      saleNumber: response.sale.sale_number,
+      saleId: response.sale.sale_id,
+      fecha: new Date(),
+      items: carritoStore.getSaleItems(),
+      subtotal: carritoStore.getSubtotal(),
+      taxAmount: carritoStore.getTax(),
+      discount: carritoStore.discount,
+      total: carritoStore.getTotal(),
+      paymentMethod: carritoStore.paymentMethod,
+      montoRecibido: carritoStore.paymentMethod === 'efectivo' ? (montoRecibido.value || undefined) : undefined,
+      cambio: carritoStore.paymentMethod === 'efectivo' ? cambio.value : undefined,
+      sellerName: response.seller_name || authStore.userName,
+      customerName: customerName.value || undefined,
+      customerRtn: customerRtn.value || undefined,
+    }
+
+    // Limpiar carrito
     carritoStore.clearCart()
     await productosStore.fetchProducts()
-
-    setTimeout(() => {
-      showCheckout.value = false
-      saleSuccess.value = false
-    }, 2000)
   } catch (err) {
     saleError.value = err instanceof Error ? err.message : 'Error al procesar la venta'
+    checkoutStep.value = 'payment'
   } finally {
     processingPayment.value = false
+  }
+}
+
+function openFactura() {
+  showCheckout.value = false
+  showFactura.value = true
+}
+
+function closeCheckout() {
+  showCheckout.value = false
+  // Si ya se procesó la venta, abrir factura automáticamente
+  if (checkoutStep.value === 'done' && facturaData.value) {
+    showFactura.value = true
   }
 }
 
@@ -373,85 +474,316 @@ function formatHNL(value: number): string {
       </v-col>
     </v-row>
 
-    <!-- Diálogo de Checkout -->
-    <v-dialog v-model="showCheckout" max-width="450">
+    <!-- Diálogo de Checkout Multi-Paso -->
+    <v-dialog v-model="showCheckout" max-width="520" persistent>
       <v-card>
-        <div class="pa-6 text-center">
-          <div class="neo-circle mx-auto mb-3" style="background: linear-gradient(135deg, #66BB6A, #81C784);">
-            <v-icon color="white" size="28">mdi-cash-register</v-icon>
+        <!-- === PASO 1: Selección método de pago === -->
+        <template v-if="checkoutStep === 'payment'">
+          <div class="pa-6 text-center">
+            <div class="neo-circle mx-auto mb-3" style="background: linear-gradient(135deg, #66BB6A, #81C784);">
+              <v-icon color="white" size="28">mdi-cash-register</v-icon>
+            </div>
+            <h3 class="text-h6 mb-1">Finalizar Venta</h3>
+            <p class="text-h5 font-weight-bold text-primary mt-2">
+              {{ formatHNL(carritoStore.getTotal()) }}
+            </p>
           </div>
-          <h3 class="text-h6 mb-1">Finalizar Venta</h3>
-          <p class="text-h5 font-weight-bold text-primary mt-2">
-            {{ formatHNL(carritoStore.getTotal()) }}
-          </p>
-        </div>
 
-        <v-card-text class="px-6 pb-4">
-          <!-- Método de pago -->
-          <p class="text-subtitle-2 font-weight-bold mb-3">Método de Pago</p>
-          <div class="d-flex gap-3 mb-4">
+          <v-card-text class="px-6 pb-4">
+            <!-- Resumen -->
+            <div class="neo-card-pressed pa-3 mb-4">
+              <div class="d-flex justify-space-between text-body-2 mb-1">
+                <span>Productos:</span>
+                <span>{{ carritoStore.getItemCount() }}</span>
+              </div>
+              <div class="d-flex justify-space-between text-body-2 mb-1">
+                <span>Subtotal:</span>
+                <span>{{ formatHNL(carritoStore.getSubtotal()) }}</span>
+              </div>
+              <div class="d-flex justify-space-between text-body-2">
+                <span>ISV:</span>
+                <span>{{ formatHNL(carritoStore.getTax()) }}</span>
+              </div>
+            </div>
+
+            <!-- Datos opcionales del cliente -->
+            <v-expansion-panels variant="accordion" class="mb-4">
+              <v-expansion-panel elevation="0">
+                <v-expansion-panel-title class="text-body-2">
+                  <v-icon start size="18" color="primary">mdi-account-outline</v-icon>
+                  Datos del cliente (opcional)
+                </v-expansion-panel-title>
+                <v-expansion-panel-text>
+                  <v-text-field
+                    v-model="customerName"
+                    label="Nombre del cliente"
+                    prepend-inner-icon="mdi-account"
+                    density="compact"
+                    class="mb-2"
+                    hide-details
+                  />
+                  <v-text-field
+                    v-model="customerRtn"
+                    label="RTN del cliente"
+                    prepend-inner-icon="mdi-card-account-details"
+                    density="compact"
+                    hide-details
+                    placeholder="0801-XXXX-XXXXX"
+                  />
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
+
+            <!-- Método de pago -->
+            <p class="text-subtitle-2 font-weight-bold mb-3">Seleccioná el método de pago</p>
+            <v-row dense>
+              <v-col cols="6">
+                <v-card
+                  class="pa-4 text-center cursor-pointer"
+                  :color="carritoStore.paymentMethod === 'efectivo' ? 'success' : undefined"
+                  :variant="carritoStore.paymentMethod === 'efectivo' ? 'elevated' : 'outlined'"
+                  @click="selectPaymentMethod('efectivo')"
+                >
+                  <v-icon size="36" :color="carritoStore.paymentMethod === 'efectivo' ? 'white' : 'success'">
+                    mdi-cash-multiple
+                  </v-icon>
+                  <div class="text-body-2 font-weight-bold mt-2" :class="carritoStore.paymentMethod === 'efectivo' ? 'text-white' : ''">
+                    Efectivo
+                  </div>
+                </v-card>
+              </v-col>
+              <v-col cols="6">
+                <v-card
+                  class="pa-4 text-center cursor-pointer"
+                  :color="carritoStore.paymentMethod === 'tarjeta' ? 'primary' : undefined"
+                  :variant="carritoStore.paymentMethod === 'tarjeta' ? 'elevated' : 'outlined'"
+                  @click="selectPaymentMethod('tarjeta')"
+                >
+                  <v-icon size="36" :color="carritoStore.paymentMethod === 'tarjeta' ? 'white' : 'primary'">
+                    mdi-credit-card-outline
+                  </v-icon>
+                  <div class="text-body-2 font-weight-bold mt-2" :class="carritoStore.paymentMethod === 'tarjeta' ? 'text-white' : ''">
+                    Tarjeta
+                  </div>
+                </v-card>
+              </v-col>
+            </v-row>
+
+            <v-alert v-if="saleError" type="error" class="mt-4" closable @click:close="saleError = ''">
+              {{ saleError }}
+            </v-alert>
+          </v-card-text>
+
+          <v-card-actions class="pa-6 pt-0">
+            <v-btn variant="text" @click="showCheckout = false">Cancelar</v-btn>
+          </v-card-actions>
+        </template>
+
+        <!-- === PASO 2a: Pago en Efectivo === -->
+        <template v-if="checkoutStep === 'cash'">
+          <div class="pa-6 text-center">
+            <div class="neo-circle mx-auto mb-3" style="background: linear-gradient(135deg, #66BB6A, #81C784);">
+              <v-icon color="white" size="28">mdi-cash-multiple</v-icon>
+            </div>
+            <h3 class="text-h6 mb-1">Pago en Efectivo</h3>
+            <p class="text-body-2 text-medium-emphasis">
+              Total a cobrar: <strong class="text-primary">{{ formatHNL(carritoStore.getTotal()) }}</strong>
+            </p>
+          </div>
+
+          <v-card-text class="px-6 pb-4">
+            <!-- Montos rápidos -->
+            <p class="text-subtitle-2 font-weight-bold mb-2">Monto rápido</p>
+            <div class="d-flex flex-wrap gap-2 mb-4">
+              <v-btn
+                v-for="monto in montosRapidos"
+                :key="monto"
+                :variant="montoRecibido === monto ? 'elevated' : 'outlined'"
+                :color="montoRecibido === monto ? 'success' : undefined"
+                size="small"
+                @click="setQuickAmount(monto)"
+              >
+                {{ formatHNL(monto) }}
+              </v-btn>
+            </div>
+
+            <!-- Monto manual -->
+            <v-text-field
+              v-model.number="montoRecibido"
+              label="Monto recibido"
+              type="number"
+              prefix="L"
+              prepend-inner-icon="mdi-cash"
+              :min="0"
+              :rules="[
+                (v: number) => v !== null || 'Ingresá el monto recibido',
+                (v: number) => v >= carritoStore.getTotal() || 'El monto debe cubrir el total'
+              ]"
+              class="mb-3"
+            />
+
+            <!-- Cambio -->
+            <div v-if="montoRecibido !== null" class="neo-card-pressed pa-4 text-center mb-4">
+              <p class="text-caption text-medium-emphasis mb-1">CAMBIO A DEVOLVER</p>
+              <p class="text-h4 font-weight-bold" :class="cashValid ? 'text-success' : 'text-error'">
+                {{ formatHNL(cambio) }}
+              </p>
+            </div>
+
+            <v-alert v-if="saleError" type="error" class="mb-3" closable @click:close="saleError = ''">
+              {{ saleError }}
+            </v-alert>
+          </v-card-text>
+
+          <v-card-actions class="pa-6 pt-0">
+            <v-btn variant="text" @click="checkoutStep = 'payment'">
+              <v-icon start>mdi-arrow-left</v-icon>
+              Atrás
+            </v-btn>
+            <v-spacer />
             <v-btn
-              :variant="carritoStore.paymentMethod === 'efectivo' ? 'elevated' : 'outlined'"
-              :color="carritoStore.paymentMethod === 'efectivo' ? 'success' : undefined"
-              @click="carritoStore.setPaymentMethod('efectivo')"
-              class="flex-grow-1"
+              color="success"
+              size="large"
+              :disabled="!cashValid"
+              :loading="processingPayment"
+              @click="finalizarVenta"
             >
-              <v-icon start>mdi-cash</v-icon>
-              Efectivo
+              <v-icon start>mdi-check</v-icon>
+              Confirmar Cobro
+            </v-btn>
+          </v-card-actions>
+        </template>
+
+        <!-- === PASO 2b: Pago con Tarjeta (Simulación) === -->
+        <template v-if="checkoutStep === 'card'">
+          <div class="pa-6 text-center">
+            <div class="neo-circle mx-auto mb-3" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
+              <v-icon color="white" size="28">mdi-credit-card-outline</v-icon>
+            </div>
+            <h3 class="text-h6 mb-1">Pago con Tarjeta</h3>
+            <p class="text-body-2 text-medium-emphasis">
+              Cobro: <strong class="text-primary">{{ formatHNL(carritoStore.getTotal()) }}</strong>
+            </p>
+          </div>
+
+          <v-card-text class="px-6 pb-4">
+            <template v-if="cardStep === 'input'">
+              <v-text-field
+                v-model="cardHolderName"
+                label="Nombre del titular"
+                prepend-inner-icon="mdi-account"
+                class="mb-3"
+              />
+              <v-text-field
+                v-model="cardLast4"
+                label="Últimos 4 dígitos de la tarjeta"
+                prepend-inner-icon="mdi-credit-card"
+                maxlength="4"
+                :rules="[(v: string) => v.length === 4 || 'Ingresá los 4 dígitos']"
+                hint="Solo para referencia en el recibo"
+                persistent-hint
+                class="mb-3"
+              />
+              <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+                <div class="text-caption">
+                  <v-icon start size="14">mdi-information</v-icon>
+                  Simulación: en producción se integraría con un proveedor de pagos (Tigo Money, BAC, etc.)
+                </div>
+              </v-alert>
+            </template>
+
+            <template v-if="cardStep === 'processing'">
+              <div class="text-center py-8">
+                <v-progress-circular indeterminate color="primary" size="64" width="4" class="mb-4" />
+                <p class="text-body-1 font-weight-medium">Procesando pago...</p>
+                <p class="text-caption text-medium-emphasis">Comunicando con terminal de pago</p>
+              </div>
+            </template>
+
+            <template v-if="cardStep === 'approved'">
+              <div class="text-center py-6">
+                <v-icon size="64" color="success">mdi-check-circle</v-icon>
+                <p class="text-h6 text-success mt-3 font-weight-bold">Pago Aprobado</p>
+                <p class="text-caption text-medium-emphasis">Tarjeta ****{{ cardLast4 }}</p>
+              </div>
+            </template>
+
+            <v-alert v-if="saleError" type="error" class="mt-3" closable @click:close="saleError = ''">
+              {{ saleError }}
+            </v-alert>
+          </v-card-text>
+
+          <v-card-actions class="pa-6 pt-0">
+            <v-btn variant="text" @click="checkoutStep = 'payment'" :disabled="cardStep !== 'input'">
+              <v-icon start>mdi-arrow-left</v-icon>
+              Atrás
+            </v-btn>
+            <v-spacer />
+            <v-btn
+              v-if="cardStep === 'input'"
+              color="primary"
+              size="large"
+              :disabled="cardLast4.length < 4"
+              @click="simulateCardPayment"
+            >
+              <v-icon start>mdi-contactless-payment</v-icon>
+              Procesar Pago
+            </v-btn>
+          </v-card-actions>
+        </template>
+
+        <!-- === PASO 3: Procesando === -->
+        <template v-if="checkoutStep === 'processing'">
+          <div class="pa-12 text-center">
+            <v-progress-circular indeterminate color="success" size="64" width="4" class="mb-4" />
+            <p class="text-h6 font-weight-medium">Registrando venta...</p>
+            <p class="text-caption text-medium-emphasis">Actualizando inventario y generando factura</p>
+          </div>
+        </template>
+
+        <!-- === PASO 4: Venta Exitosa === -->
+        <template v-if="checkoutStep === 'done'">
+          <div class="pa-6 text-center">
+            <v-icon size="72" color="success" class="mb-3">mdi-check-circle-outline</v-icon>
+            <h3 class="text-h5 text-success font-weight-bold mb-2">¡Venta Exitosa!</h3>
+            <p class="text-body-2 text-medium-emphasis mb-1">
+              {{ lastSaleResponse?.message }}
+            </p>
+            <p v-if="carritoStore.paymentMethod === 'efectivo' && montoRecibido" class="text-body-1">
+              Cambio: <strong class="text-success">{{ formatHNL(cambio) }}</strong>
+            </p>
+          </div>
+
+          <v-card-actions class="pa-6 pt-0 d-flex flex-column ga-2">
+            <v-btn
+              color="primary"
+              size="large"
+              block
+              prepend-icon="mdi-receipt-text"
+              @click="openFactura"
+            >
+              Ver Factura
             </v-btn>
             <v-btn
-              :variant="carritoStore.paymentMethod === 'tarjeta' ? 'elevated' : 'outlined'"
-              :color="carritoStore.paymentMethod === 'tarjeta' ? 'success' : undefined"
-              @click="carritoStore.setPaymentMethod('tarjeta')"
-              class="flex-grow-1"
+              variant="text"
+              block
+              @click="showCheckout = false"
             >
-              <v-icon start>mdi-credit-card</v-icon>
-              Tarjeta
+              Cerrar
             </v-btn>
-          </div>
-
-          <!-- Resumen -->
-          <div class="neo-card-pressed pa-3 mb-4">
-            <div class="d-flex justify-space-between text-body-2 mb-1">
-              <span>Productos:</span>
-              <span>{{ carritoStore.getItemCount() }}</span>
-            </div>
-            <div class="d-flex justify-space-between text-body-2 mb-1">
-              <span>Subtotal:</span>
-              <span>{{ formatHNL(carritoStore.getSubtotal()) }}</span>
-            </div>
-            <div class="d-flex justify-space-between text-body-2">
-              <span>ISV:</span>
-              <span>{{ formatHNL(carritoStore.getTax()) }}</span>
-            </div>
-          </div>
-
-          <v-alert v-if="saleSuccess" type="success" class="mb-3">
-            Venta procesada exitosamente
-          </v-alert>
-          <v-alert v-if="saleError" type="error" class="mb-3">
-            {{ saleError }}
-          </v-alert>
-        </v-card-text>
-
-        <v-card-actions class="pa-6 pt-0">
-          <v-btn variant="text" @click="showCheckout = false" :disabled="processingPayment">
-            Cancelar
-          </v-btn>
-          <v-spacer />
-          <v-btn
-            color="success"
-            size="large"
-            :loading="processingPayment"
-            :disabled="saleSuccess"
-            @click="finalizarVenta"
-          >
-            <v-icon start>mdi-check</v-icon>
-            Confirmar Venta
-          </v-btn>
-        </v-card-actions>
+          </v-card-actions>
+        </template>
       </v-card>
     </v-dialog>
+
+    <!-- Factura/Recibo -->
+    <FacturaRecibo
+      v-if="facturaData"
+      :data="facturaData"
+      :show="showFactura"
+      @update:show="showFactura = $event"
+      @close="facturaData = null"
+    />
 
     <v-dialog v-model="showScanner" max-width="540">
       <v-card>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -15,7 +15,6 @@ watch(() => authStore.isAuthenticated, (isAuth) => {
   }
 }, { immediate: true })
 
-const tab = ref<'login' | 'register'>('login')
 const showPassword = ref(false)
 const formValid = ref(false)
 
@@ -23,17 +22,10 @@ const formValid = ref(false)
 const loginEmail = ref('')
 const loginPassword = ref('')
 
-// Register form
-const registerEmail = ref('')
-const registerPassword = ref('')
-const registerConfirmPassword = ref('')
-const registerName = ref('')
-
 // Forgot password
 const showForgotPassword = ref(false)
 const forgotEmail = ref('')
 const forgotMessage = ref('')
-const showRegistrationSuccess = ref(false)
 
 // Reglas de validación
 const emailRules = [
@@ -46,16 +38,6 @@ const passwordRules = [
   (v: string) => v.length >= 6 || 'Mínimo 6 caracteres'
 ]
 
-const confirmPasswordRules = computed(() => [
-  (v: string) => !!v || 'Confirma tu contraseña',
-  (v: string) => v === registerPassword.value || 'Las contraseñas no coinciden'
-])
-
-const nameRules = [
-  (v: string) => !!v || 'El nombre es requerido',
-  (v: string) => v.length >= 2 || 'Mínimo 2 caracteres'
-]
-
 async function handleLogin() {
   if (!formValid.value) return
 
@@ -63,29 +45,6 @@ async function handleLogin() {
   
   if (result.success) {
     router.push('/pos')
-  }
-}
-
-async function handleRegister() {
-  if (!formValid.value) return
-
-  const result = await authStore.register(
-    registerEmail.value,
-    registerPassword.value,
-    registerName.value
-  )
-
-  if (result.success) {
-    if (result.autoConfirmed) {
-      // Usuario auto-confirmado — redirigir al POS
-      const redirect = (route.query.redirect as string) || '/pos'
-      router.replace(redirect)
-    } else {
-      // Necesita confirmación por email
-      tab.value = 'login'
-      loginEmail.value = registerEmail.value
-      showRegistrationSuccess.value = true
-    }
   }
 }
 
@@ -120,30 +79,7 @@ async function handleForgotPassword() {
             <p class="text-caption text-medium-emphasis mt-1">Sistema con Inteligencia Artificial</p>
           </div>
 
-          <!-- Tabs neomórficas -->
-          <div class="d-flex justify-center px-6 py-3">
-            <div class="neo-tab-group d-flex">
-              <button
-                :class="['neo-tab', { 'neo-tab-active': tab === 'login' }]"
-                @click="tab = 'login'"
-              >
-                <v-icon start size="18">mdi-login</v-icon>
-                Iniciar Sesión
-              </button>
-              <button
-                :class="['neo-tab', { 'neo-tab-active': tab === 'register' }]"
-                @click="tab = 'register'"
-              >
-                <v-icon start size="18">mdi-account-plus</v-icon>
-                Registrarse
-              </button>
-            </div>
-          </div>
-
-          <v-window v-model="tab">
-            <!-- Login Tab -->
-            <v-window-item value="login">
-              <v-card-text class="pa-6">
+          <v-card-text class="pa-6">
                 <v-form v-model="formValid" @submit.prevent="handleLogin">
                   <v-text-field
                     v-model="loginEmail"
@@ -200,95 +136,13 @@ async function handleForgotPassword() {
                     Iniciar Sesión
                   </v-btn>
                 </v-form>
-              </v-card-text>
-            </v-window-item>
+          </v-card-text>
 
-            <!-- Register Tab -->
-            <v-window-item value="register">
-              <v-card-text class="pa-6">
-                <v-form v-model="formValid" @submit.prevent="handleRegister">
-                  <v-text-field
-                    v-model="registerName"
-                    label="Nombre completo"
-                    :rules="nameRules"
-                    prepend-inner-icon="mdi-account-outline"
-                    class="mb-3"
-                    autocomplete="name"
-                  />
-
-                  <v-text-field
-                    v-model="registerEmail"
-                    label="Correo electrónico"
-                    type="email"
-                    :rules="emailRules"
-                    prepend-inner-icon="mdi-email-outline"
-                    class="mb-3"
-                    autocomplete="email"
-                  />
-
-                  <v-text-field
-                    v-model="registerPassword"
-                    label="Contraseña"
-                    :type="showPassword ? 'text' : 'password'"
-                    :rules="passwordRules"
-                    prepend-inner-icon="mdi-lock-outline"
-                    :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
-                    @click:append-inner="showPassword = !showPassword"
-                    class="mb-3"
-                    autocomplete="new-password"
-                  />
-
-                  <v-text-field
-                    v-model="registerConfirmPassword"
-                    label="Confirmar contraseña"
-                    :type="showPassword ? 'text' : 'password'"
-                    :rules="confirmPasswordRules"
-                    prepend-inner-icon="mdi-lock-check-outline"
-                    class="mb-4"
-                    autocomplete="new-password"
-                  />
-
-                  <v-alert
-                    v-if="authStore.error"
-                    type="error"
-                    class="mb-4"
-                    closable
-                  >
-                    {{ authStore.error }}
-                  </v-alert>
-
-                  <v-btn
-                    type="submit"
-                    color="primary"
-                    size="large"
-                    block
-                    :loading="authStore.loading"
-                    :disabled="!formValid"
-                    class="neo-btn-primary"
-                  >
-                    <v-icon start>mdi-account-plus</v-icon>
-                    Crear Cuenta
-                  </v-btn>
-                </v-form>
-              </v-card-text>
-            </v-window-item>
-          </v-window>
-
-          <!-- Mensaje de registro exitoso -->
-          <v-alert
-            v-if="showRegistrationSuccess"
-            type="info"
-            variant="tonal"
-            class="mx-4 mb-3"
-            closable
-            @click:close="showRegistrationSuccess = false"
-          >
-            <div class="text-subtitle-2 font-weight-bold">¡Registro exitoso!</div>
-            <div class="text-caption">
-              Revisa tu correo electrónico y haz clic en el enlace de verificación.
-              <strong>El servidor de desarrollo debe estar corriendo</strong> para completar la verificación.
-            </div>
-          </v-alert>
+          <div class="text-center px-6 pb-2">
+            <p class="text-caption text-medium-emphasis">
+              ¿No tenés cuenta? Contactá a tu administrador.
+            </p>
+          </div>
 
           <!-- Footer -->
           <div class="text-center text-caption pa-4 neo-card-pressed mx-4 mb-4">
@@ -350,39 +204,6 @@ async function handleForgotPassword() {
 
 .neo-login-header {
   background-color: var(--neo-bg);
-}
-
-.neo-tab-group {
-  background-color: var(--neo-bg-alt);
-  box-shadow: var(--neo-pressed-sm);
-  border-radius: var(--neo-radius-sm);
-  padding: 4px;
-  gap: 4px;
-}
-
-.neo-tab {
-  padding: 8px 20px;
-  border-radius: var(--neo-radius-xs);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--neo-shadow-dark-strong);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  transition: var(--neo-transition);
-}
-
-.neo-tab:hover {
-  color: rgb(var(--v-theme-primary));
-}
-
-.neo-tab-active {
-  box-shadow: var(--neo-raised-sm);
-  background-color: var(--neo-bg) !important;
-  color: rgb(var(--v-theme-primary));
-  font-weight: 600;
 }
 
 .neo-btn-primary {

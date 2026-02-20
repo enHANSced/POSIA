@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Product, Sale, Category, SaleItem, LowStockProduct, Json } from '@/types/supabase'
+import type { Product, Sale, Category, SaleItem, LowStockProduct, Json, UserProfile } from '@/types/supabase'
 
 const PRODUCT_IMAGES_BUCKET = import.meta.env.VITE_SUPABASE_PRODUCT_IMAGES_BUCKET || 'product-images'
 
@@ -378,6 +378,46 @@ export function subscribeToSales(
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'sales' },
+      (payload) => callback(payload as any)
+    )
+    .subscribe()
+}
+
+// ==================== EMPLEADOS ====================
+
+export async function fetchEmployees(): Promise<UserProfile[]> {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (error) throw error
+  return data || []
+}
+
+export async function updateEmployeeProfile(
+  id: string,
+  updates: Partial<Pick<UserProfile, 'full_name' | 'phone' | 'role' | 'active'>>
+): Promise<UserProfile> {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export function subscribeToEmployees(
+  callback: (payload: { eventType: string; new: UserProfile; old: UserProfile }) => void
+) {
+  return supabase
+    .channel('employees-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'user_profiles' },
       (payload) => callback(payload as any)
     )
     .subscribe()

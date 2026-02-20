@@ -199,3 +199,46 @@ export async function analizarProductoImagen(
 
   return data as AnalizarProductoImagenResponse
 }
+
+// ==================== GESTIÓN DE EMPLEADOS (Edge Function) ====================
+
+export interface CrearEmpleadoRequest {
+  email: string
+  password: string
+  full_name: string
+  role: 'admin' | 'seller' | 'viewer'
+  phone?: string
+}
+
+export interface CrearEmpleadoResponse {
+  success: boolean
+  user_id: string
+  message: string
+}
+
+/**
+ * Crea un nuevo empleado via Edge Function.
+ * Usa la API de admin de Supabase para crear usuarios sin afectar la sesión actual.
+ */
+export async function crearEmpleado(request: CrearEmpleadoRequest): Promise<CrearEmpleadoResponse> {
+  const { data, error } = await supabase.functions.invoke('gestionar-empleados', {
+    body: {
+      action: 'create',
+      email: request.email,
+      password: request.password,
+      full_name: request.full_name,
+      role: request.role,
+      phone: request.phone ?? null,
+    },
+  })
+
+  if (error) {
+    throw new Error(error.message || 'Error al crear empleado')
+  }
+
+  if (data?.error) {
+    throw new Error(data.error)
+  }
+
+  return data as CrearEmpleadoResponse
+}

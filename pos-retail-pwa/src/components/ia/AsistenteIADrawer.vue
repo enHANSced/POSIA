@@ -7,6 +7,7 @@ const iaStore = useIAStore()
 
 const mensaje = ref('')
 const panelMensajes = ref<HTMLElement | null>(null)
+const mostrarHistorial = ref(false)
 
 const conversaciones = computed(() => iaStore.conversaciones)
 const mensajes = computed(() => iaStore.mensajes)
@@ -29,32 +30,42 @@ function vistaPrevia(texto: string): string {
 
 function limpiarMarkdownBasico(texto: string): string {
   return texto
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .replace(/`(.*?)`/g, '$1')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/`(.*?)`/g, '<code class="bg-grey-lighten-3 px-1 rounded text-caption">$1</code>')
 }
 
-function parsearRespuestaIA(texto: string): Array<{ tipo: 'titulo' | 'bullet' | 'texto'; valor: string }> {
+function parsearRespuestaIA(texto: string): Array<{ tipo: 'titulo' | 'bullet' | 'numbered' | 'texto'; valor: string; prefix?: string; indent: number }> {
   const limpio = limpiarMarkdownBasico(texto)
-  const lineas = limpio
-    .split('\n')
-    .map((linea) => linea.trim())
-    .filter(Boolean)
+  const lineasRaw = limpio.split('\n').filter(linea => linea.trim().length > 0)
 
-  return lineas.map((linea) => {
-    if (/^\d+[.)]\s+/.test(linea)) {
-      return { tipo: 'bullet' as const, valor: linea.replace(/^\d+[.)]\s+/, '') }
+  return lineasRaw.map((lineaRaw) => {
+    // Calcular indentación basada en espacios iniciales (2 espacios = 1 nivel)
+    const espacios = lineaRaw.match(/^\s*/)?.[0].length || 0
+    const indent = Math.floor(espacios / 2)
+    
+    const linea = lineaRaw.trim()
+
+    // Detect numbered lists: "1. ", "1) "
+    const numberedMatch = linea.match(/^(\d+[.)])\s+(.*)/);
+    if (numberedMatch) {
+      return { tipo: 'numbered' as const, valor: numberedMatch[2], prefix: numberedMatch[1], indent }
     }
 
-    if (/^[-•]\s+/.test(linea)) {
-      return { tipo: 'bullet' as const, valor: linea.replace(/^[-•]\s+/, '') }
+    // Detect bullet lists: "- ", "* ", "• "
+    if (/^[-•*]\s+/.test(linea)) {
+      return { tipo: 'bullet' as const, valor: linea.replace(/^[-•*]\s+/, ''), indent }
     }
 
-    if (linea.endsWith(':')) {
-      return { tipo: 'titulo' as const, valor: linea.slice(0, -1) }
+    // Detect headers: "### Title", "Title:"
+    if (linea.startsWith('### ')) {
+      return { tipo: 'titulo' as const, valor: linea.replace(/^###\s+/, ''), indent }
+    }
+    if (linea.endsWith(':') || linea.endsWith(':</strong>')) {
+      return { tipo: 'titulo' as const, valor: linea, indent }
     }
 
-    return { tipo: 'texto' as const, valor: linea }
+    return { tipo: 'texto' as const, valor: linea, indent }
   })
 }
 
@@ -110,123 +121,193 @@ watch(
     location="right"
     temporary
     width="420"
+    class="d-flex flex-column"
   >
-    <div class="pa-4 d-flex align-center">
-      <div class="neo-circle-sm mr-3">
-        <v-icon color="primary">mdi-robot-happy-outline</v-icon>
-      </div>
-      <div>
-        <h3 class="text-subtitle-1 font-weight-bold">Asistente IA</h3>
-        <p class="text-caption text-medium-emphasis">Consultas de ventas y stock</p>
-      </div>
-      <v-spacer />
-      <v-btn icon variant="text" @click="iaStore.nuevaConversacion()">
-        <v-icon>mdi-plus</v-icon>
-      </v-btn>
-    </div>
-
-    <v-divider />
-
-    <div class="pa-3">
-      <v-list density="compact" class="neo-card-pressed pa-2 mb-3" max-height="160">
-        <v-list-item
-          v-for="conversacion in conversaciones"
-          :key="conversacion.id"
-          rounded="lg"
-          class="mb-1"
-          @click="iaStore.seleccionarConversacion(conversacion.id)"
-        >
-          <template #prepend>
-            <v-icon size="16">mdi-forum-outline</v-icon>
-          </template>
-
-          <v-list-item-title class="text-caption font-weight-medium">
-            {{ vistaPrevia(conversacion.title || 'Conversación sin título') }}
-          </v-list-item-title>
-          <v-list-item-subtitle class="text-caption">
-            {{ formatearFecha(conversacion.updated_at) }}
-          </v-list-item-subtitle>
-
-          <template #append>
-            <v-btn icon size="x-small" variant="text" @click.stop="iaStore.borrarConversacion(conversacion.id)">
-              <v-icon size="14">mdi-close</v-icon>
-            </v-btn>
-          </template>
-        </v-list-item>
-      </v-list>
-
-      <div ref="panelMensajes" class="mensajes-panel neo-flat pa-3 mb-3">
-        <div v-if="mensajes.length === 0" class="text-caption text-medium-emphasis text-center py-6">
-          Escribí una pregunta sobre ventas, productos o recomendaciones.
+    <div class="d-flex flex-column h-100 overflow-hidden">
+      <!-- Header -->
+      <div class="pa-3 d-flex align-center flex-shrink-0">
+        <v-btn icon size="small" variant="text" @click="model = false" class="mr-2">
+           <v-icon>mdi-chevron-right</v-icon>
+        </v-btn>
+        
+        <div class="d-flex flex-column">
+          <h3 class="text-subtitle-2 font-weight-bold">Asistente IA</h3>
+          <p class="text-caption text-medium-emphasis" style="font-size: 0.7rem !important; line-height: 1;">
+            {{ iaStore.conversacionActualId ? 'Conversación activa' : 'Nueva consulta' }}
+          </p>
         </div>
-
-        <div
-          v-for="(msg, index) in mensajes"
-          :key="index"
-          class="mb-2"
-          :class="msg.role === 'user' ? 'text-right' : 'text-left'"
+        
+        <v-spacer />
+        
+        <v-btn 
+          icon 
+          size="small" 
+          variant="text" 
+          :color="mostrarHistorial ? 'primary' : undefined"
+          @click="mostrarHistorial = !mostrarHistorial"
+          v-if="conversaciones.length > 0"
+          title="Ver historial"
         >
-          <div class="mensaje-bubble" :class="msg.role === 'user' ? 'mensaje-user' : 'mensaje-ia'">
-            <template v-if="msg.role === 'assistant'">
-              <div
-                v-for="(linea, idx) in parsearRespuestaIA(msg.content)"
-                :key="`${index}-${idx}`"
-                class="mb-1"
-              >
-                <div v-if="linea.tipo === 'titulo'" class="text-body-2 font-weight-bold">
-                  {{ linea.valor }}
-                </div>
-                <div v-else-if="linea.tipo === 'bullet'" class="d-flex align-start">
-                  <v-icon size="14" class="mr-1 mt-1">mdi-circle-small</v-icon>
-                  <span>{{ linea.valor }}</span>
-                </div>
-                <div v-else>
-                  {{ linea.valor }}
+          <v-icon>mdi-history</v-icon>
+        </v-btn>
+
+        <v-btn icon size="small" variant="text" @click="iaStore.nuevaConversacion()" title="Nueva conversación">
+          <v-icon>mdi-plus</v-icon>
+        </v-btn>
+      </div>
+
+      <v-divider class="flex-shrink-0" />
+
+      <!-- Conversations History (Collapsible/Scrollable region) -->
+      <v-expand-transition>
+        <div v-if="mostrarHistorial && conversaciones.length > 0" class="flex-shrink-0 px-3 pt-3 pb-1 bg-surface-lighten-1">
+          <div class="d-flex align-center justify-space-between mb-2 px-1">
+            <span class="text-caption font-weight-bold text-medium-emphasis">HISTORIAL RECIENTE</span>
+            <v-chip size="x-small" variant="tonal" density="compact">{{ conversaciones.length }}</v-chip>
+          </div>
+          
+          <v-list density="compact" class="neo-card-pressed pa-1 mb-2 bg-transparent" max-height="160" style="overflow-y: auto;">
+            <v-list-item
+              v-for="conversacion in conversaciones"
+              :key="conversacion.id"
+              rounded="lg"
+              class="mb-1"
+              density="compact"
+              :class="{ 'bg-primary-lighten-5': iaStore.conversacionActualId === conversacion.id }"
+              @click="iaStore.seleccionarConversacion(conversacion.id); mostrarHistorial = false"
+            >
+              <template #prepend>
+                <v-icon size="16" :color="iaStore.conversacionActualId === conversacion.id ? 'primary' : undefined">mdi-forum-outline</v-icon>
+              </template>
+
+              <v-list-item-title class="text-caption font-weight-medium" :class="{ 'text-primary': iaStore.conversacionActualId === conversacion.id }">
+                {{ vistaPrevia(conversacion.title || 'Conversación sin título') }}
+              </v-list-item-title>
+              <v-list-item-subtitle class="text-caption" style="font-size: 0.65rem !important;">
+                {{ formatearFecha(conversacion.updated_at) }}
+              </v-list-item-subtitle>
+
+              <template #append>
+                <v-btn icon size="x-small" density="compact" variant="text" @click.stop="iaStore.borrarConversacion(conversacion.id)">
+                  <v-icon size="14">mdi-close</v-icon>
+                </v-btn>
+              </template>
+            </v-list-item>
+          </v-list>
+        </div>
+      </v-expand-transition>
+
+      <!-- Main Chat Area (Flex Grow) -->
+      <div class="d-flex flex-column flex-grow-1 overflow-hidden px-3 pb-3 pt-0">
+        <div ref="panelMensajes" class="mensajes-panel neo-flat pa-3 mb-3 flex-grow-1 d-flex flex-column" style="min-height: 0;">
+          <div v-if="mensajes.length === 0" class="text-caption text-medium-emphasis text-center py-6 my-auto">
+            <v-icon size="48" color="primary" class="mb-2 opacity-50">mdi-robot-outline</v-icon>
+            <br>
+            Escribí una pregunta sobre ventas, productos o recomendaciones.
+          </div>
+
+          <div class="d-flex flex-column justify-end" :class="{ 'flex-grow-1': mensajes.length > 0 }">
+            <div
+              v-for="(msg, index) in mensajes"
+              :key="index"
+              class="mb-3 d-flex"
+              :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
+            >
+              <div v-if="msg.role === 'assistant'" class="mr-2 mt-1 flex-shrink-0">
+                <v-avatar size="28" color="primary" variant="tonal">
+                  <v-icon size="16">mdi-robot-happy</v-icon>
+                </v-avatar>
+              </div>
+              
+              <div class="mensaje-bubble" :class="msg.role === 'user' ? 'mensaje-user bg-primary text-white' : 'mensaje-ia bg-surface'">
+                <template v-if="msg.role === 'assistant'">
+                  <div
+                    v-for="(linea, idx) in parsearRespuestaIA(msg.content)"
+                    :key="`${index}-${idx}`"
+                    class="mb-1"
+                  >
+                    <div v-if="linea.tipo === 'titulo'" class="text-body-2 font-weight-bold text-primary mt-3 mb-1" v-html="linea.valor">
+                    </div>
+                    <div v-else-if="linea.tipo === 'bullet'" class="d-flex align-start pl-2 mb-1">
+                      <v-icon size="14" class="mr-2 mt-1 text-primary opacity-70">mdi-circle-small</v-icon>
+                      <span v-html="linea.valor" class="flex-grow-1"></span>
+                    </div>
+                    <div v-else-if="linea.tipo === 'numbered'" class="d-flex align-start pl-2 mb-1">
+                      <span class="mr-2 font-weight-bold text-primary opacity-70 text-caption mt-1" style="min-width: 14px;">{{ linea.prefix }}</span>
+                      <span v-html="linea.valor" class="flex-grow-1"></span>
+                    </div>
+                    <div v-else v-html="linea.valor" class="mt-1">
+                    </div>
+                  </div>
+                </template>
+                <template v-else>
+                  {{ msg.content }}
+                </template>
+              </div>
+            </div>
+
+            <!-- Indicador de escribiendo -->
+            <div v-if="iaStore.enviando" class="mb-3 d-flex justify-start align-center">
+              <div class="mr-2 flex-shrink-0">
+                <v-avatar size="28" color="primary" variant="tonal">
+                  <v-icon size="16">mdi-robot-happy</v-icon>
+                </v-avatar>
+              </div>
+              <div class="mensaje-bubble mensaje-ia bg-surface px-4 py-3">
+                <div class="typing-indicator">
+                  <span></span><span></span><span></span>
                 </div>
               </div>
-            </template>
-            <template v-else>
-              {{ msg.content }}
-            </template>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="mb-3">
-        <div class="text-caption text-medium-emphasis mb-2">Sugerencias rápidas</div>
-        <div class="d-flex flex-wrap ga-2">
-          <v-chip
-            v-for="sugerencia in promptSugeridos"
-            :key="sugerencia"
-            size="small"
-            variant="tonal"
-            class="cursor-pointer"
-            @click="enviarSugerencia(sugerencia)"
-          >
-            {{ sugerencia }}
-          </v-chip>
+        <div class="mb-3 flex-shrink-0" v-if="mensajes.length === 0 || promptSugeridos.length > 0">
+          <div class="text-caption text-medium-emphasis mb-2">Sugerencias rápidas</div>
+          <div class="d-flex flex-wrap ga-2">
+            <div
+              v-for="sugerencia in promptSugeridos"
+              :key="sugerencia"
+              class="neo-suggestion-btn text-caption text-primary cursor-pointer px-3 py-2"
+              @click="enviarSugerencia(sugerencia)"
+            >
+              {{ sugerencia }}
+            </div>
+          </div>
         </div>
-      </div>
 
-      <v-alert v-if="iaStore.error" type="error" density="compact" class="mb-2">
-        {{ iaStore.error }}
-      </v-alert>
+        <v-alert v-if="iaStore.error" type="error" density="compact" class="mb-2 flex-shrink-0" variant="tonal">
+          {{ iaStore.error }}
+        </v-alert>
 
-      <v-textarea
-        v-model="mensaje"
-        rows="2"
-        auto-grow
-        hide-details
-        placeholder="Preguntá algo al asistente..."
-        :disabled="iaStore.enviando"
-        @keydown="manejarTecladoEnvio"
-      />
-
-      <div class="d-flex justify-end mt-2">
-        <v-btn color="primary" :loading="iaStore.enviando" @click="enviar">
-          <v-icon start>mdi-send</v-icon>
-          Enviar
-        </v-btn>
+        <div class="flex-shrink-0 neo-card-pressed pa-2 rounded-lg">
+          <v-textarea
+            v-model="mensaje"
+            rows="1"
+            max-rows="4"
+            auto-grow
+            hide-details
+            variant="plain"
+            density="compact"
+            placeholder="Preguntá algo al asistente..."
+            :disabled="iaStore.enviando"
+            @keydown="manejarTecladoEnvio"
+            class="px-2"
+          >
+            <template #append-inner>
+              <v-btn 
+                icon="mdi-send" 
+                variant="text" 
+                color="primary" 
+                size="small"
+                :loading="iaStore.enviando" 
+                :disabled="!mensaje.trim() || iaStore.enviando"
+                @click="enviar"
+                class="mt-n1"
+              />
+            </template>
+          </v-textarea>
+        </div>
       </div>
     </div>
   </v-navigation-drawer>
@@ -234,26 +315,83 @@ watch(
 
 <style scoped>
 .mensajes-panel {
-  height: 340px;
   overflow-y: auto;
   border-radius: var(--neo-radius);
+  scroll-behavior: smooth;
 }
 
 .mensaje-bubble {
   display: inline-block;
-  max-width: 90%;
-  padding: 10px 12px;
-  border-radius: 14px;
-  font-size: 0.85rem;
-  line-height: 1.35;
+  max-width: 85%;
+  padding: 12px 16px;
+  border-radius: 16px;
+  font-size: 0.9rem;
+  line-height: 1.4;
   text-align: left;
+  word-break: break-word;
 }
 
 .mensaje-user {
-  box-shadow: var(--neo-pressed-sm);
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 4px 12px rgba(74, 123, 247, 0.2);
 }
 
 .mensaje-ia {
+  border-bottom-left-radius: 4px;
   box-shadow: var(--neo-raised-sm);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.neo-suggestion-btn {
+  background-color: var(--neo-bg);
+  border-radius: 12px;
+  box-shadow: var(--neo-raised-sm);
+  transition: all 0.2s ease;
+  user-select: none;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.neo-suggestion-btn:hover {
+  box-shadow: var(--neo-raised);
+  transform: translateY(-1px);
+  color: rgb(var(--v-theme-primary)) !important;
+}
+
+.neo-suggestion-btn:active {
+  box-shadow: var(--neo-pressed-sm);
+  transform: translateY(1px);
+}
+
+/* Typing indicator animation */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 14px;
+}
+
+.typing-indicator span {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: rgba(74, 123, 247, 0.6);
+  animation: typing 1.4s infinite ease-in-out both;
+}
+
+.typing-indicator span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes typing {
+  0%, 80%, 100% { 
+    transform: scale(0);
+  } 40% { 
+    transform: scale(1);
+  }
 }
 </style>

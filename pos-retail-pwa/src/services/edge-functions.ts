@@ -72,6 +72,7 @@ export interface AgenteIAResponse {
   success: boolean
   message: string
   conversation_id: string
+  follow_up_suggestions?: string[]
 }
 
 /**

@@ -9,10 +9,18 @@ import {
   type IAConversationSummary,
 } from '@/services/edge-functions'
 
+const DEFAULT_PROMPTS = [
+  '¿Qué productos se han vendido más esta semana?',
+  'Dame alertas de stock bajo y prioridad de reposición.',
+  '¿Cómo van las ventas de hoy frente a la semana?',
+  'Recomiéndame 3 acciones para aumentar ingresos mañana.'
+]
+
 export const useIAStore = defineStore('ia', () => {
   // Estado
   const conversaciones = shallowRef<IAConversationSummary[]>([])
   const mensajes = shallowRef<IAMessage[]>([])
+  const sugerencias = shallowRef<string[]>([...DEFAULT_PROMPTS])
   const conversacionActualId = ref<string | null>(null)
   const cargando = ref(false)
   const enviando = ref(false)
@@ -41,6 +49,7 @@ export const useIAStore = defineStore('ia', () => {
       conversacionActualId.value = id
       mensajes.value = await fetchMensajesConversacion(id)
       triggerRef(mensajes)
+      actualizarSugerenciasDesdeMensajes()
     } catch (err) {
       error.value = 'Error al cargar mensajes'
       console.error(err)
@@ -52,7 +61,9 @@ export const useIAStore = defineStore('ia', () => {
   function nuevaConversacion() {
     conversacionActualId.value = null
     mensajes.value = []
+    sugerencias.value = [...DEFAULT_PROMPTS]
     triggerRef(mensajes)
+    triggerRef(sugerencias)
   }
 
   async function borrarConversacion(id: string) {
@@ -107,6 +118,12 @@ export const useIAStore = defineStore('ia', () => {
       mensajes.value = [...mensajes.value, assistantMessage]
       triggerRef(mensajes)
 
+      actualizarSugerencias(
+        texto,
+        assistantMessage.content,
+        response.follow_up_suggestions || []
+      )
+
       // Recargar lista de conversaciones
       await cargarConversaciones()
     } catch (err) {
@@ -125,16 +142,83 @@ export const useIAStore = defineStore('ia', () => {
   function $reset() {
     conversaciones.value = []
     mensajes.value = []
+    sugerencias.value = [...DEFAULT_PROMPTS]
     conversacionActualId.value = null
     cargando.value = false
     enviando.value = false
     error.value = null
   }
 
+  function actualizarSugerencias(
+    userMessage: string,
+    assistantMessage: string,
+    suggestionsFromApi: string[] = []
+  ) {
+    if (suggestionsFromApi.length > 0) {
+      sugerencias.value = suggestionsFromApi.slice(0, 4)
+      triggerRef(sugerencias)
+      return
+    }
+
+    sugerencias.value = construirSugerenciasHeuristicas(userMessage, assistantMessage)
+    triggerRef(sugerencias)
+  }
+
+  function actualizarSugerenciasDesdeMensajes() {
+    if (mensajes.value.length === 0) {
+      sugerencias.value = [...DEFAULT_PROMPTS]
+      triggerRef(sugerencias)
+      return
+    }
+
+    const lastUser = [...mensajes.value].reverse().find((msg) => msg.role === 'user')
+    const lastAssistant = [...mensajes.value].reverse().find((msg) => msg.role === 'assistant')
+
+    sugerencias.value = construirSugerenciasHeuristicas(
+      lastUser?.content || '',
+      lastAssistant?.content || ''
+    )
+    triggerRef(sugerencias)
+  }
+
+  function construirSugerenciasHeuristicas(userMessage: string, assistantMessage: string): string[] {
+    const source = `${userMessage} ${assistantMessage}`.toLowerCase()
+
+    if (/(vendedor|empleado|equipo|rendimiento|desempeñ|desempen)/.test(source)) {
+      return [
+        'Compárame los 3 mejores vendedores por ingresos y ticket promedio.',
+        '¿Qué vendedor necesita apoyo y en qué indicador específico?',
+        'Dame un plan de mejora por vendedor para los próximos 7 días.',
+        '¿Qué metas diarias recomiendas por vendedor para esta semana?'
+      ]
+    }
+
+    if (/(stock|inventario|reposici|quiebre|minimo|mínimo)/.test(source)) {
+      return [
+        'Prioriza los productos con mayor riesgo de quiebre esta semana.',
+        'Sugiéreme cantidades de reposición por producto crítico.',
+        '¿Qué productos de bajo stock también son de alta rotación?',
+        'Crea un plan de compras para los próximos 5 días.'
+      ]
+    }
+
+    if (/(venta|ingreso|ticket|margen|factur|recaud)/.test(source)) {
+      return [
+        'Compárame hoy vs ayer en ingresos, ticket promedio y cantidad de ventas.',
+        '¿Qué productos impulsan más ingresos y cuáles menos?',
+        'Dame 3 acciones para subir ticket promedio mañana.',
+        '¿Qué método de pago predomina y qué impacto tiene en ventas?'
+      ]
+    }
+
+    return [...DEFAULT_PROMPTS]
+  }
+
   return {
     // Estado
     conversaciones,
     mensajes,
+    sugerencias,
     conversacionActualId,
     cargando,
     enviando,
@@ -145,6 +229,7 @@ export const useIAStore = defineStore('ia', () => {
     nuevaConversacion,
     borrarConversacion,
     enviarMensaje,
+    actualizarSugerenciasDesdeMensajes,
     $reset,
   }
 })

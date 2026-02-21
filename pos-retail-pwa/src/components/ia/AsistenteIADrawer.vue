@@ -8,15 +8,9 @@ const iaStore = useIAStore()
 const mensaje = ref('')
 const panelMensajes = ref<HTMLElement | null>(null)
 
-const promptSugeridos = [
-  '¿Qué productos se han vendido más esta semana?',
-  'Dame alertas de stock bajo y prioridad de reposición.',
-  '¿Cómo van las ventas de hoy frente a la semana?',
-  'Recomiéndame 3 acciones para aumentar ingresos mañana.'
-]
-
 const conversaciones = computed(() => iaStore.conversaciones)
 const mensajes = computed(() => iaStore.mensajes)
+const promptSugeridos = computed(() => iaStore.sugerencias)
 
 function formatearFecha(fecha: string | null): string {
   if (!fecha) return '-'
@@ -94,6 +88,9 @@ async function cargarAlAbrir() {
 
 watch(model, async () => {
   await cargarAlAbrir()
+  if (model.value) {
+    iaStore.actualizarSugerenciasDesdeMensajes()
+  }
 })
 
 watch(

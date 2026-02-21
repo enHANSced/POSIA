@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import { useProductosStore } from '@/stores/productos'
-import { fetchCategories, createProduct, updateProduct, uploadProductImage } from '@/services/database'
+import { fetchCategories, createCategory, updateCategory, deleteCategory, createProduct, updateProduct, uploadProductImage } from '@/services/database'
 import { analizarProductoImagen } from '@/services/edge-functions'
 import type { Category, Product } from '@/types/supabase'
-import { Html5QrcodeScanner } from 'html5-qrcode'
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 
 const productosStore = useProductosStore()
 
@@ -13,7 +13,7 @@ const searchQuery = ref('')
 const showForm = ref(false)
 const editingProduct = ref<Product | null>(null)
 let unsubscribe: (() => void) | null = null
-let barcodeScanner: Html5QrcodeScanner | null = null
+let barcodeScanner: Html5Qrcode | null = null
 
 // Formulario
 const form = ref({
@@ -21,12 +21,12 @@ const form = ref({
   barcode: '',
   sku: '',
   category_id: null as string | null,
-  price: 0,
-  cost: 0,
+  price: null as number | null,
+  cost: null as number | null,
   image_url: '',
-  stock: 0,
-  min_stock: 5,
-  tax_rate: 16,
+  stock: null as number | null,
+  min_stock: null as number | null,
+  tax_rate: null as number | null,
   description: '',
   active: true
 })
@@ -41,7 +41,35 @@ const scannerStatus = ref('')
 const scannerError = ref('')
 const analizandoImagen = ref(false)
 const analisisError = ref('')
-const fileInput = ref(null)
+const fileInput = ref<any>(null)
+let barcodeDetected = false
+
+// AI suggested category (when not in registered list)
+const suggestedCategoryName = ref('')
+
+// Barcode formats for scanner
+const BARCODE_FORMATS = [
+  Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.EAN_8,
+  Html5QrcodeSupportedFormats.UPC_A,
+  Html5QrcodeSupportedFormats.UPC_E,
+  Html5QrcodeSupportedFormats.CODE_128,
+  Html5QrcodeSupportedFormats.CODE_39,
+  Html5QrcodeSupportedFormats.CODE_93,
+  Html5QrcodeSupportedFormats.ITF,
+  Html5QrcodeSupportedFormats.QR_CODE,
+]
+
+// Camera capture
+const showCamera = ref(false)
+let cameraStream: MediaStream | null = null
+
+// Category management
+const showCategoryManager = ref(false)
+const categoryForm = ref({ name: '', description: '', color: '#4A7BF7', icon: 'mdi-shape' })
+const editingCategory = ref<Category | null>(null)
+const savingCategory = ref(false)
+const categoryError = ref('')
 
 // Cargar datos
 onMounted(async () => {
@@ -56,6 +84,7 @@ onMounted(async () => {
 onUnmounted(() => {
   unsubscribe?.()
   clearBarcodeScanner()
+  cerrarCamara()
 })
 
 async function loadCategories() {
@@ -81,17 +110,18 @@ function openNewForm() {
   editingProduct.value = null
   selectedImageFile.value = null
   imagePreview.value = ''
+  suggestedCategoryName.value = ''
   form.value = {
     name: '',
     barcode: '',
     sku: '',
     category_id: null,
-    price: 0,
-    cost: 0,
+    price: null,
+    cost: null,
     image_url: '',
-    stock: 0,
-    min_stock: 5,
-    tax_rate: 16,
+    stock: null,
+    min_stock: null,
+    tax_rate: null,
     description: '',
     active: true
   }
@@ -102,17 +132,18 @@ function editProduct(product: Product) {
   editingProduct.value = product
   selectedImageFile.value = null
   imagePreview.value = product.image_url || ''
+  suggestedCategoryName.value = ''
   form.value = {
     name: product.name,
     barcode: product.barcode || '',
     sku: product.sku || '',
     category_id: product.category_id,
     price: product.price,
-    cost: product.cost || 0,
+    cost: product.cost ?? null,
     image_url: product.image_url || '',
-    stock: product.stock || 0,
-    min_stock: product.min_stock || 5,
-    tax_rate: product.tax_rate || 16,
+    stock: product.stock ?? null,
+    min_stock: product.min_stock ?? null,
+    tax_rate: product.tax_rate ?? null,
     description: product.description || '',
     active: product.active !== false
   }
@@ -132,39 +163,44 @@ function onImageSelected(files: File[] | File | null) {
 }
 
 async function handleBarcode(code: string) {
+  if (barcodeDetected) return
   const barcode = code.trim()
   if (!barcode) return
 
+  barcodeDetected = true
   form.value.barcode = barcode
   scannerError.value = ''
   scannerStatus.value = `Código detectado: ${barcode}`
+  setTimeout(() => cerrarEscaner(), 800)
 }
 
 async function initBarcodeScanner() {
   if (barcodeScanner) return
 
   try {
-    barcodeScanner = new Html5QrcodeScanner(
-      'productos-scanner-reader',
-      { fps: 10, qrbox: { width: 260, height: 120 } },
-      false
-    )
+    barcodeScanner = new Html5Qrcode('productos-scanner-reader', {
+      formatsToSupport: BARCODE_FORMATS,
+      verbose: false,
+      useBarCodeDetectorIfSupported: true,
+    })
 
-    barcodeScanner.render(
+    await barcodeScanner.start(
+      { facingMode: 'environment' },
+      { fps: 15, qrbox: { width: 300, height: 150 }, aspectRatio: 1.777778 },
       async (decodedText) => {
         await handleBarcode(decodedText)
       },
       () => {}
     )
   } catch {
-    scannerError.value = 'No se pudo iniciar el escáner.'
+    scannerError.value = 'No se pudo iniciar el escáner. Verificá los permisos de cámara.'
   }
 }
 
 async function clearBarcodeScanner() {
   if (!barcodeScanner) return
   try {
-    await barcodeScanner.clear()
+    await barcodeScanner.stop()
   } catch {
   } finally {
     barcodeScanner = null
@@ -172,12 +208,14 @@ async function clearBarcodeScanner() {
 }
 
 async function abrirEscaner() {
+  barcodeDetected = false
   showBarcodeScanner.value = true
   scannerStatus.value = ''
   scannerError.value = ''
+  await nextTick()
   setTimeout(() => {
     void initBarcodeScanner()
-  }, 80)
+  }, 150)
 }
 
 async function cerrarEscaner() {
@@ -221,6 +259,7 @@ async function autocompletarConIA() {
       imageBase64,
       mimeType: selectedImageFile.value.type || 'image/jpeg',
       barcode: form.value.barcode || undefined,
+      categories: categories.value.map(c => c.name),
     })
 
     const s = resultado.suggestion || {}
@@ -233,6 +272,7 @@ async function autocompletarConIA() {
     form.value.cost = typeof s.cost === 'number' && s.cost >= 0 ? s.cost : form.value.cost
     form.value.tax_rate = typeof s.tax_rate === 'number' && s.tax_rate >= 0 ? s.tax_rate : form.value.tax_rate
 
+    suggestedCategoryName.value = ''
     if (s.category_name) {
       const category = categories.value.find(
         c => c.name.trim().toLowerCase() === s.category_name?.trim().toLowerCase()
@@ -240,6 +280,9 @@ async function autocompletarConIA() {
 
       if (category) {
         form.value.category_id = category.id
+      } else {
+        // Categoría sugerida por IA no registrada: mostrarla como sugerencia
+        suggestedCategoryName.value = s.category_name
       }
     }
   } catch (error) {
@@ -255,6 +298,126 @@ function limpiarImagen() {
   imagePreview.value = ''
 }
 
+// Camera capture
+async function abrirCamara() {
+  showCamera.value = true
+  await nextTick()
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+    })
+    cameraStream = stream
+    const video = document.getElementById('camera-preview') as HTMLVideoElement
+    if (video) {
+      video.srcObject = stream
+      await video.play()
+    }
+  } catch {
+    analisisError.value = 'No se pudo acceder a la cámara.'
+    showCamera.value = false
+  }
+}
+
+function capturarFoto() {
+  const video = document.getElementById('camera-preview') as HTMLVideoElement
+  if (!video) return
+
+  const canvas = document.createElement('canvas')
+  canvas.width = video.videoWidth
+  canvas.height = video.videoHeight
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+
+  ctx.drawImage(video, 0, 0)
+  canvas.toBlob((blob) => {
+    if (!blob) return
+    const file = new File([blob], `foto-${Date.now()}.jpg`, { type: 'image/jpeg' })
+    selectedImageFile.value = file
+    imagePreview.value = URL.createObjectURL(file)
+    cerrarCamara()
+  }, 'image/jpeg', 0.85)
+}
+
+function cerrarCamara() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(track => track.stop())
+    cameraStream = null
+  }
+  showCamera.value = false
+}
+
+// Category management
+function openCategoryForm(category?: Category) {
+  if (category) {
+    editingCategory.value = category
+    categoryForm.value = {
+      name: category.name,
+      description: category.description || '',
+      color: category.color || '#4A7BF7',
+      icon: category.icon || 'mdi-shape',
+    }
+  } else {
+    editingCategory.value = null
+    categoryForm.value = { name: '', description: '', color: '#4A7BF7', icon: 'mdi-shape' }
+  }
+}
+
+async function saveCategoryForm() {
+  if (!categoryForm.value.name.trim()) return
+  savingCategory.value = true
+  categoryError.value = ''
+
+  try {
+    if (editingCategory.value) {
+      await updateCategory(editingCategory.value.id, categoryForm.value)
+    } else {
+      await createCategory(categoryForm.value as any)
+    }
+    await loadCategories()
+    editingCategory.value = null
+    categoryForm.value = { name: '', description: '', color: '#4A7BF7', icon: 'mdi-shape' }
+  } catch (err) {
+    console.error('Error guardando categoría:', err)
+    categoryError.value = 'Error al guardar la categoría.'
+  } finally {
+    savingCategory.value = false
+  }
+}
+
+async function removeCategory(id: string) {
+  categoryError.value = ''
+  try {
+    await deleteCategory(id)
+    await loadCategories()
+    if (form.value.category_id === id) {
+      form.value.category_id = null
+    }
+  } catch (err) {
+    console.error('Error eliminando categoría:', err)
+    categoryError.value = 'No se pudo eliminar. Puede tener productos asociados.'
+  }
+}
+
+async function crearCategoriaSugerida() {
+  if (!suggestedCategoryName.value.trim()) return
+  savingCategory.value = true
+  try {
+    const newCat = await createCategory({
+      name: suggestedCategoryName.value.trim(),
+      description: null,
+      color: '#4A7BF7',
+      icon: 'mdi-shape',
+    })
+    await loadCategories()
+    form.value.category_id = newCat.id
+    suggestedCategoryName.value = ''
+  } catch (err) {
+    console.error('Error creando categoría sugerida:', err)
+  } finally {
+    savingCategory.value = false
+  }
+}
+
 async function saveProduct() {
   if (!formValid.value) return
   saving.value = true
@@ -265,10 +428,20 @@ async function saveProduct() {
       form.value.image_url = uploadedUrl
     }
 
+    // Preparar datos con valores por defecto para campos vacíos
+    const productData = {
+      ...form.value,
+      price: form.value.price ?? 0,
+      cost: form.value.cost ?? 0,
+      stock: form.value.stock ?? 0,
+      min_stock: form.value.min_stock ?? 5,
+      tax_rate: form.value.tax_rate ?? 15,
+    }
+
     if (editingProduct.value) {
-      await updateProduct(editingProduct.value.id, form.value)
+      await updateProduct(editingProduct.value.id, productData)
     } else {
-      await createProduct(form.value as any)
+      await createProduct(productData as any)
     }
 
     selectedImageFile.value = null
@@ -405,7 +578,7 @@ function getCategoryName(categoryId: string | null): string {
                       style="width: 100%; aspect-ratio: 1; border-radius: 20px; cursor: pointer; transition: all 0.3s ease;"
                       :style="isHovering ? 'border: 2px solid var(--v-primary-base);' : 'border: 2px dashed transparent;'"
                       v-bind="props"
-                      @click="$refs.fileInput.$el.querySelector('input').click()"
+                      @click="(fileInput as any)?.$el?.querySelector('input')?.click()"
                     >
                       <v-img
                         v-if="imagePreview || form.image_url"
@@ -446,6 +619,29 @@ function getCategoryName(categoryId: string | null): string {
                     @update:model-value="onImageSelected"
                     @click:clear="selectedImageFile = null; imagePreview = ''"
                   ></v-file-input>
+
+                  <!-- Botones de captura de imagen -->
+                  <div class="d-flex ga-2 mb-3 w-100">
+                    <v-btn
+                      variant="tonal"
+                      color="primary"
+                      class="flex-grow-1"
+                      size="small"
+                      @click="abrirCamara"
+                    >
+                      <v-icon start size="18">mdi-camera</v-icon>
+                      Tomar Foto
+                    </v-btn>
+                    <v-btn
+                      v-if="imagePreview || form.image_url"
+                      variant="tonal"
+                      color="error"
+                      size="small"
+                      @click="limpiarImagen"
+                    >
+                      <v-icon size="18">mdi-delete</v-icon>
+                    </v-btn>
+                  </div>
 
                   <!-- Botón IA Mejorado -->
                   <v-btn
@@ -547,7 +743,43 @@ function getCategoryName(categoryId: string | null): string {
                           variant="outlined"
                           density="comfortable"
                           prepend-inner-icon="mdi-shape"
-                        />
+                        >
+                          <template #append>
+                            <v-btn icon size="x-small" variant="text" color="primary" @click.stop="showCategoryManager = true" title="Gestionar categorías">
+                              <v-icon size="18">mdi-cog</v-icon>
+                            </v-btn>
+                          </template>
+                        </v-select>
+                        <!-- Sugerencia de categoría de la IA -->
+                        <v-alert
+                          v-if="suggestedCategoryName && !form.category_id"
+                          type="info"
+                          variant="tonal"
+                          density="compact"
+                          class="mt-n2 mb-2 text-caption"
+                        >
+                          <div class="d-flex align-center flex-wrap ga-2">
+                            <v-icon size="14">mdi-sparkles</v-icon>
+                            <span>IA sugiere: <strong>{{ suggestedCategoryName }}</strong></span>
+                            <v-btn
+                              size="x-small"
+                              color="primary"
+                              variant="tonal"
+                              :loading="savingCategory"
+                              @click="crearCategoriaSugerida"
+                            >
+                              <v-icon start size="14">mdi-plus</v-icon>
+                              Crear categoría
+                            </v-btn>
+                            <v-btn
+                              size="x-small"
+                              variant="text"
+                              @click="suggestedCategoryName = ''"
+                            >
+                              Ignorar
+                            </v-btn>
+                          </div>
+                        </v-alert>
                       </v-col>
 
                       <v-col cols="12" sm="6">
@@ -578,10 +810,11 @@ function getCategoryName(categoryId: string | null): string {
                           label="Precio Venta *"
                           type="number"
                           prefix="L"
+                          placeholder="0.00"
                           variant="outlined"
                           density="comfortable"
                           class="font-weight-bold"
-                          :rules="[v => v >= 0 || 'Inválido']"
+                          :rules="[v => v === null || v === '' || v >= 0 || 'Inválido']"
                         />
                       </v-col>
 
@@ -591,6 +824,7 @@ function getCategoryName(categoryId: string | null): string {
                           label="Costo Unitario"
                           type="number"
                           prefix="L"
+                          placeholder="0.00"
                           variant="outlined"
                           density="comfortable"
                         />
@@ -602,6 +836,7 @@ function getCategoryName(categoryId: string | null): string {
                           label="ISV"
                           type="number"
                           suffix="%"
+                          placeholder="15"
                           variant="outlined"
                           density="comfortable"
                         />
@@ -683,7 +918,7 @@ function getCategoryName(categoryId: string | null): string {
         </div>
 
         <v-card-text class="px-6 pb-2">
-          <div id="productos-scanner-reader" class="neo-flat pa-2 mb-3" />
+          <div id="productos-scanner-reader" class="neo-flat pa-2 mb-3" style="min-height: 250px;" />
 
           <v-text-field
             v-model="scannerManualCode"
@@ -708,6 +943,154 @@ function getCategoryName(categoryId: string | null): string {
             <v-icon start>mdi-check</v-icon>
             Usar código
           </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Diálogo de cámara -->
+    <v-dialog v-model="showCamera" max-width="600" @update:model-value="!$event && cerrarCamara()">
+      <v-card>
+        <div class="pa-5 d-flex align-center justify-space-between">
+          <div class="d-flex align-center">
+            <div class="neo-circle-sm mr-3">
+              <v-icon color="primary">mdi-camera</v-icon>
+            </div>
+            <h3 class="text-h6 font-weight-bold">Tomar Foto del Producto</h3>
+          </div>
+          <v-btn icon variant="text" @click="cerrarCamara">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+        </div>
+
+        <v-card-text class="px-5 py-2">
+          <div class="neo-pressed rounded-lg overflow-hidden mb-3" style="aspect-ratio: 16/9;">
+            <video id="camera-preview" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover;" />
+          </div>
+        </v-card-text>
+
+        <v-card-actions class="pa-5 pt-2">
+          <v-btn variant="text" @click="cerrarCamara">Cancelar</v-btn>
+          <v-spacer />
+          <v-btn color="primary" size="large" @click="capturarFoto">
+            <v-icon start>mdi-camera</v-icon>
+            Capturar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Diálogo de gestión de categorías -->
+    <v-dialog v-model="showCategoryManager" max-width="600" persistent>
+      <v-card>
+        <div class="pa-5 d-flex align-center justify-space-between">
+          <div class="d-flex align-center">
+            <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #66BB6A, #43A047);">
+              <v-icon color="white" size="20">mdi-shape</v-icon>
+            </div>
+            <h3 class="text-h6 font-weight-bold">Gestionar Categorías</h3>
+          </div>
+          <v-btn icon variant="text" @click="showCategoryManager = false">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+        </div>
+
+        <v-card-text class="px-5 py-0">
+          <v-alert v-if="categoryError" type="error" variant="tonal" density="compact" class="mb-3">
+            {{ categoryError }}
+          </v-alert>
+
+          <!-- Formulario nueva/editar categoría -->
+          <v-card variant="outlined" class="mb-4 pa-3">
+            <div class="text-subtitle-2 font-weight-bold mb-2">
+              {{ editingCategory ? 'Editar categoría' : 'Nueva categoría' }}
+            </div>
+            <v-row dense>
+              <v-col cols="12" sm="8">
+                <v-text-field
+                  v-model="categoryForm.name"
+                  label="Nombre de categoría *"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                />
+              </v-col>
+              <v-col cols="12" sm="4">
+                <v-text-field
+                  v-model="categoryForm.color"
+                  label="Color"
+                  type="color"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                />
+              </v-col>
+              <v-col cols="12">
+                <v-text-field
+                  v-model="categoryForm.description"
+                  label="Descripción (opcional)"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  class="mt-2"
+                />
+              </v-col>
+              <v-col cols="12" class="d-flex ga-2 mt-2">
+                <v-btn
+                  color="primary"
+                  size="small"
+                  :loading="savingCategory"
+                  :disabled="!categoryForm.name.trim()"
+                  @click="saveCategoryForm"
+                >
+                  <v-icon start size="18">mdi-check</v-icon>
+                  {{ editingCategory ? 'Actualizar' : 'Crear' }}
+                </v-btn>
+                <v-btn
+                  v-if="editingCategory"
+                  variant="text"
+                  size="small"
+                  @click="editingCategory = null; categoryForm = { name: '', description: '', color: '#4A7BF7', icon: 'mdi-shape' }"
+                >
+                  Cancelar edición
+                </v-btn>
+              </v-col>
+            </v-row>
+          </v-card>
+
+          <!-- Lista de categorías existentes -->
+          <v-list density="compact" class="mb-2">
+            <v-list-item
+              v-for="cat in categories"
+              :key="cat.id"
+              class="px-2"
+            >
+              <template #prepend>
+                <v-avatar size="32" :color="cat.color || '#4A7BF7'" class="mr-3">
+                  <v-icon color="white" size="18">{{ cat.icon || 'mdi-shape' }}</v-icon>
+                </v-avatar>
+              </template>
+              <v-list-item-title class="font-weight-medium">{{ cat.name }}</v-list-item-title>
+              <v-list-item-subtitle v-if="cat.description">{{ cat.description }}</v-list-item-subtitle>
+              <template #append>
+                <v-btn icon size="x-small" variant="text" @click="openCategoryForm(cat)">
+                  <v-icon size="16">mdi-pencil</v-icon>
+                </v-btn>
+                <v-btn icon size="x-small" variant="text" color="error" @click="removeCategory(cat.id)">
+                  <v-icon size="16">mdi-delete</v-icon>
+                </v-btn>
+              </template>
+            </v-list-item>
+            <v-list-item v-if="categories.length === 0">
+              <v-list-item-title class="text-medium-emphasis text-center py-4">
+                No hay categorías registradas
+              </v-list-item-title>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+
+        <v-card-actions class="pa-5 pt-2">
+          <v-spacer />
+          <v-btn variant="text" @click="showCategoryManager = false">Cerrar</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

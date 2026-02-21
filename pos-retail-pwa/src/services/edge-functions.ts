@@ -171,6 +171,7 @@ export interface AnalizarProductoImagenRequest {
   imageBase64: string
   mimeType: string
   barcode?: string
+  categories?: string[]
 }
 
 export interface AnalizarProductoImagenResponse {
@@ -195,6 +196,7 @@ export async function analizarProductoImagen(
       imageBase64: request.imageBase64,
       mimeType: request.mimeType,
       barcode: request.barcode ?? null,
+      categories: request.categories ?? [],
     },
   })
 

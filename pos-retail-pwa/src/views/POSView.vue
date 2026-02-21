@@ -6,7 +6,7 @@ import { useCarritoStore } from '@/stores/carrito'
 import { useAuthStore } from '@/stores/auth'
 import { procesarVenta } from '@/services/edge-functions'
 import type { ProcesarVentaResponse } from '@/services/edge-functions'
-import { Html5QrcodeScanner } from 'html5-qrcode'
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 import FacturaRecibo from '@/components/pos/FacturaRecibo.vue'
 import type { FacturaData } from '@/components/pos/FacturaRecibo.vue'
 
@@ -22,6 +22,20 @@ const lastAddedId = ref<string | null>(null)
 const scannerManualCode = ref('')
 const scannerStatus = ref('')
 const scannerError = ref('')
+const lastScannedCode = ref('')
+const lastScanTime = ref(0)
+
+const BARCODE_FORMATS = [
+  Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.EAN_8,
+  Html5QrcodeSupportedFormats.UPC_A,
+  Html5QrcodeSupportedFormats.UPC_E,
+  Html5QrcodeSupportedFormats.CODE_128,
+  Html5QrcodeSupportedFormats.CODE_39,
+  Html5QrcodeSupportedFormats.CODE_93,
+  Html5QrcodeSupportedFormats.ITF,
+  Html5QrcodeSupportedFormats.QR_CODE,
+]
 
 // === CHECKOUT STATE ===
 const showCheckout = ref(false)
@@ -64,7 +78,7 @@ const showFactura = ref(false)
 const facturaData = ref<FacturaData | null>(null)
 const lastSaleResponse = ref<ProcesarVentaResponse | null>(null)
 
-let barcodeScanner: Html5QrcodeScanner | null = null
+let barcodeScanner: Html5Qrcode | null = null
 let unsubscribe: (() => void) | null = null
 
 onMounted(async () => {
@@ -139,7 +153,7 @@ function getCategoryGradient(producto: any): string {
     'linear-gradient(135deg,#AB47BC,#8E24AA)',
     'linear-gradient(135deg,#42A5F5,#1E88E5)',
   ]
-  return palette[Math.abs(hash) % palette.length]
+  return palette[Math.abs(hash) % palette.length] as string
 }
 
 function isLowStock(producto: any): boolean {
@@ -159,6 +173,12 @@ async function handleBarcode(code: string) {
   const barcode = code.trim()
   if (!barcode) return
 
+  // Debounce: ignorar mismo código en 3 segundos
+  const now = Date.now()
+  if (barcode === lastScannedCode.value && now - lastScanTime.value < 3000) return
+  lastScannedCode.value = barcode
+  lastScanTime.value = now
+
   const product = await productosStore.getByBarcode(barcode)
   if (!product) {
     scannerError.value = 'No se encontró producto para ese código.'
@@ -176,12 +196,15 @@ async function handleBarcode(code: string) {
 async function initScanner() {
   if (barcodeScanner) return
   try {
-    barcodeScanner = new Html5QrcodeScanner(
-      'pos-scanner-reader',
-      { fps: 10, qrbox: { width: 260, height: 120 } },
-      false
-    )
-    barcodeScanner.render(
+    barcodeScanner = new Html5Qrcode('pos-scanner-reader', {
+      formatsToSupport: BARCODE_FORMATS,
+      verbose: false,
+      useBarCodeDetectorIfSupported: true,
+    })
+
+    await barcodeScanner.start(
+      { facingMode: 'environment' },
+      { fps: 15, qrbox: { width: 300, height: 150 }, aspectRatio: 1.777778 },
       async (decodedText) => { await handleBarcode(decodedText) },
       () => {}
     )
@@ -192,7 +215,7 @@ async function initScanner() {
 
 async function clearScanner() {
   if (!barcodeScanner) return
-  try { await barcodeScanner.clear() } catch {} finally { barcodeScanner = null }
+  try { await barcodeScanner.stop() } catch {} finally { barcodeScanner = null }
 }
 
 function buscarManual() {
@@ -858,7 +881,7 @@ function formatHNL(value: number): string {
         </div>
 
         <v-card-text class="px-6 pb-2">
-          <div id="pos-scanner-reader" class="neo-flat pa-2 mb-3" />
+          <div id="pos-scanner-reader" class="neo-flat pa-2 mb-3" style="min-height: 250px;" />
 
           <v-text-field
             v-model="scannerManualCode"

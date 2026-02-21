@@ -116,16 +116,61 @@ watch(showCheckout, (open) => {
   }
 })
 
+// Filtro por categoría
+const selectedCategory = ref<string | null>(null)
+
+// Edición manual de cantidad en carrito
+const editingQtyIndex = ref<number | null>(null)
+const editingQtyValue = ref<number>(1)
+
+function startEditQty(index: number, currentQty: number) {
+  editingQtyIndex.value = index
+  editingQtyValue.value = currentQty
+}
+
+function confirmEditQty(index: number) {
+  const qty = Math.max(1, Math.floor(editingQtyValue.value || 1))
+  carritoStore.updateQuantity(index, qty)
+  editingQtyIndex.value = null
+}
+
+function cancelEditQty() {
+  editingQtyIndex.value = null
+}
+
+const categorias = computed(() => {
+  const cats = new Map<string, number>()
+  productosStore.products.forEach(p => {
+    const catName = p.categories?.name
+    if (catName) cats.set(catName, (cats.get(catName) || 0) + 1)
+  })
+  return Array.from(cats.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+})
+
+function toggleCategory(cat: string) {
+  selectedCategory.value = selectedCategory.value === cat ? null : cat
+}
+
 // Productos filtrados
 const productosFiltrados = computed(() => {
-  if (!searchQuery.value) return productosStore.products
+  let prods = productosStore.products
+  if (selectedCategory.value) {
+    prods = prods.filter(p => p.categories?.name === selectedCategory.value)
+  }
+  if (!searchQuery.value) return prods
   const query = searchQuery.value.toLowerCase()
-  return productosStore.products.filter(p =>
+  return prods.filter(p =>
     p.name.toLowerCase().includes(query) ||
     p.barcode?.includes(query) ||
     p.sku?.toLowerCase().includes(query)
   )
 })
+
+function getStockPercent(producto: any): number {
+  const stock = producto.stock ?? 0
+  const max = Math.max(stock, producto.min_stock ?? 10, 20)
+  return Math.min(100, (stock / max) * 100)
+}
 
 // Colores por categoría para placeholder de productos sin imagen
 const CATEGORY_COLORS: Record<string, string> = {
@@ -328,11 +373,14 @@ function formatHNL(value: number): string {
         <v-card class="neo-animate-in">
           <v-card-text class="pa-5">
             <!-- Header -->
-            <div class="d-flex align-center mb-5">
+            <div class="d-flex align-center mb-4">
               <div class="neo-circle-sm mr-3 d-none d-sm-flex" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
                 <v-icon color="white" size="20">mdi-point-of-sale</v-icon>
               </div>
-              <h2 class="text-h6 font-weight-bold">Punto de Venta</h2>
+              <div>
+                <h2 class="text-h6 font-weight-bold">Punto de Venta</h2>
+                <span class="text-caption text-medium-emphasis">{{ productosFiltrados.length }} productos disponibles</span>
+              </div>
               <v-spacer />
               <v-btn
                 color="primary"
@@ -351,8 +399,30 @@ function formatHNL(value: number): string {
               label="Buscar producto (nombre, código, SKU)"
               prepend-inner-icon="mdi-magnify"
               clearable
-              class="mb-5"
+              class="mb-3"
             />
+
+            <!-- Filtro por categoría -->
+            <div class="d-flex flex-wrap ga-2 pb-2 pt-2 mb-4 category-filter">
+              <button
+                class="cat-btn"
+                :class="{ 'cat-btn--active': selectedCategory === null }"
+                @click="selectedCategory = null"
+              >
+                <v-icon size="14" class="mr-1">mdi-view-grid</v-icon>
+                Todos
+              </button>
+              <button
+                v-for="[cat, count] in categorias"
+                :key="cat"
+                class="cat-btn"
+                :class="{ 'cat-btn--active': selectedCategory === cat }"
+                @click="toggleCategory(cat)"
+              >
+                {{ cat }}
+                <span class="cat-count">{{ count }}</span>
+              </button>
+            </div>
 
             <!-- Grid de productos -->
             <v-row v-if="!productosStore.loading">
@@ -367,7 +437,8 @@ function formatHNL(value: number): string {
                   class="producto-card"
                   :class="{
                     'producto-card-low-stock': isLowStock(producto),
-                    'producto-card-added': lastAddedId === producto.id
+                    'producto-card-added': lastAddedId === producto.id,
+                    'producto-card-sin-stock': (producto.stock || 0) <= 0
                   }"
                   :disabled="(producto.stock || 0) <= 0"
                   role="button"
@@ -377,39 +448,62 @@ function formatHNL(value: number): string {
                   @keydown.enter="agregarAlCarrito(producto)"
                   @keydown.space.prevent="agregarAlCarrito(producto)"
                 >
-                  <!-- Imagen del producto o placeholder por categoría -->
-                  <v-img
-                    v-if="producto.image_url"
-                    :src="producto.image_url"
-                    height="100"
-                    cover
-                    class="neo-rounded-sm"
-                  />
-                  <div
-                    v-else
-                    class="producto-placeholder d-flex align-center justify-center"
-                    :style="{ background: getCategoryGradient(producto) }"
-                  >
-                    <span class="text-h5 font-weight-bold" style="color: rgba(255,255,255,0.9)">
-                      {{ producto.name.charAt(0).toUpperCase() }}
-                    </span>
+                  <!-- Imagen del producto o placeholder -->
+                  <div class="producto-img-container">
+                    <v-img
+                      v-if="producto.image_url"
+                      :src="producto.image_url"
+                      height="110"
+                      cover
+                    />
+                    <div
+                      v-else
+                      class="producto-placeholder d-flex align-center justify-center"
+                      :style="{ background: getCategoryGradient(producto) }"
+                    >
+                      <v-icon size="32" color="white" style="opacity: 0.85">mdi-package-variant</v-icon>
+                    </div>
+                    <!-- Category badge -->
+                    <v-chip
+                      v-if="producto.categories?.name"
+                      class="producto-category-badge"
+                      size="x-small"
+                      variant="flat"
+                    >
+                      {{ producto.categories.name }}
+                    </v-chip>
+                    <!-- Add overlay on hover -->
+                    <div class="producto-add-overlay">
+                      <v-icon color="white" size="28">mdi-cart-plus</v-icon>
+                    </div>
                   </div>
 
-                  <v-card-text class="pa-3">
-                    <div class="text-subtitle-2 text-truncate font-weight-medium">
+                  <v-card-text class="pa-3 pt-2">
+                    <div class="text-subtitle-2 text-truncate font-weight-medium mb-1">
                       {{ producto.name }}
                     </div>
-                    <div class="d-flex justify-space-between align-center mt-2">
+                    <div class="d-flex justify-space-between align-center">
                       <span class="text-body-1 text-primary font-weight-bold">
                         {{ formatHNL(producto.price) }}
                       </span>
-                      <v-chip
-                        :color="(producto.stock || 0) <= 0 ? 'error' : isLowStock(producto) ? 'warning' : 'success'"
-                        size="x-small"
-                        variant="tonal"
+                      <span
+                        class="text-caption font-weight-medium"
+                        :class="(producto.stock || 0) <= 0 ? 'text-error' : isLowStock(producto) ? 'text-warning' : 'text-medium-emphasis'"
                       >
-                        {{ producto.stock }}
-                      </v-chip>
+                        {{ producto.stock ?? 0 }} uds
+                      </span>
+                    </div>
+                    <!-- Stock bar -->
+                    <div class="stock-bar mt-2">
+                      <div
+                        class="stock-bar-fill"
+                        :style="{ width: getStockPercent(producto) + '%' }"
+                        :class="{
+                          'fill-error': (producto.stock || 0) <= 0,
+                          'fill-warning': isLowStock(producto) && (producto.stock || 0) > 0,
+                          'fill-success': !isLowStock(producto) && (producto.stock || 0) > 0
+                        }"
+                      />
                     </div>
                   </v-card-text>
                 </v-card>
@@ -450,110 +544,125 @@ function formatHNL(value: number): string {
           </div>
 
           <!-- Lista de items -->
-          <v-card-text class="pa-0" style="height: calc(100% - 250px); overflow-y: auto;">
-            <v-list v-if="carritoStore.items.length > 0" density="compact" class="pa-2">
-              <v-list-item
+          <v-card-text class="pa-0" style="height: calc(100% - 280px); overflow-y: auto;">
+            <div v-if="carritoStore.items.length > 0" class="pa-3">
+              <div
                 v-for="(item, index) in carritoStore.items"
                 :key="index"
-                class="mb-1 neo-flat pa-2"
-                rounded="lg"
+                class="cart-item mb-2 pa-3"
               >
-                <template #prepend>
-                  <v-avatar size="40" rounded="lg" class="neo-pressed-sm">
-                    <v-img :src="item.product.image_url || 'https://placehold.co/40'" />
+                <div class="d-flex align-center">
+                  <v-avatar size="42" rounded="lg" class="mr-3">
+                    <v-img v-if="item.product.image_url" :src="item.product.image_url" cover />
+                    <div v-else class="w-100 h-100 d-flex align-center justify-center" :style="{ background: getCategoryGradient(item.product) }">
+                      <v-icon size="18" color="white">mdi-package-variant</v-icon>
+                    </div>
                   </v-avatar>
-                </template>
-
-                <v-list-item-title class="text-body-2 font-weight-medium">
-                  {{ item.product.name }}
-                </v-list-item-title>
-                <v-list-item-subtitle class="text-caption">
-                  {{ formatHNL(item.product.price) }} x {{ item.quantity }}
-                </v-list-item-subtitle>
-
-                <template #append>
-                  <div class="d-flex align-center">
-                    <v-btn
-                      icon
-                      size="x-small"
-                      variant="text"
-                      @click.stop="carritoStore.decrementItem(index)"
-                    >
-                      <v-icon size="16">mdi-minus</v-icon>
-                    </v-btn>
-                    <span class="mx-1 text-body-2 font-weight-bold">{{ item.quantity }}</span>
-                    <v-btn
-                      icon
-                      size="x-small"
-                      variant="text"
-                      @click.stop="carritoStore.incrementItem(index)"
-                    >
-                      <v-icon size="16">mdi-plus</v-icon>
-                    </v-btn>
-                    <v-btn
-                      icon
-                      size="x-small"
-                      color="error"
-                      variant="text"
-                      @click.stop="carritoStore.removeItem(index)"
-                    >
-                      <v-icon size="16">mdi-delete-outline</v-icon>
-                    </v-btn>
+                  <div class="flex-grow-1" style="min-width: 0;">
+                    <div class="d-flex justify-space-between align-center">
+                      <span class="text-body-2 font-weight-medium text-truncate">{{ item.product.name }}</span>
+                      <v-btn icon size="x-small" variant="text" color="error" class="ml-1" @click.stop="carritoStore.removeItem(index)">
+                        <v-icon size="14">mdi-close</v-icon>
+                      </v-btn>
+                    </div>
+                    <div class="d-flex justify-space-between align-center mt-2">
+                      <div class="qty-control">
+                        <v-btn icon size="small" variant="text" @click.stop="carritoStore.decrementItem(index)">
+                          <v-icon size="18">mdi-minus</v-icon>
+                        </v-btn>
+                        <template v-if="editingQtyIndex === index">
+                          <input
+                            type="number"
+                            class="qty-input"
+                            v-model.number="editingQtyValue"
+                            min="1"
+                            :max="item.product.stock ?? 999"
+                            @keyup.enter="confirmEditQty(index)"
+                            @keyup.escape="cancelEditQty()"
+                            @blur="confirmEditQty(index)"
+                            autofocus
+                            @click.stop
+                          />
+                        </template>
+                        <template v-else>
+                          <span
+                            class="qty-value text-body-1 font-weight-bold"
+                            @click.stop="startEditQty(index, item.quantity)"
+                            title="Clic para editar cantidad"
+                          >{{ item.quantity }}</span>
+                        </template>
+                        <v-btn icon size="small" variant="text" @click.stop="carritoStore.incrementItem(index)">
+                          <v-icon size="18">mdi-plus</v-icon>
+                        </v-btn>
+                      </div>
+                      <span class="text-body-2 font-weight-bold text-primary">{{ formatHNL(item.subtotal + item.tax) }}</span>
+                    </div>
+                    <div class="text-caption text-medium-emphasis mt-1">
+                      {{ formatHNL(item.product.price) }} × {{ item.quantity }}
+                    </div>
                   </div>
-                </template>
-              </v-list-item>
-            </v-list>
+                </div>
+              </div>
+            </div>
 
             <!-- Carrito vacío -->
-            <div v-else class="text-center py-12">
-              <div class="neo-circle mx-auto mb-4">
-                <v-icon size="28" color="grey-lighten-1">mdi-cart-outline</v-icon>
+            <div v-else class="text-center py-12 px-4">
+              <div class="neo-circle mx-auto mb-4" style="width: 72px; height: 72px;">
+                <v-icon size="32" color="grey-lighten-1">mdi-cart-outline</v-icon>
               </div>
-              <p class="text-body-2 text-medium-emphasis">Carrito vacío</p>
-              <p class="text-caption text-disabled">Selecciona productos para agregar</p>
+              <p class="text-subtitle-2 text-medium-emphasis mb-1">Carrito vacío</p>
+              <p class="text-caption text-disabled">Toca un producto para agregarlo</p>
             </div>
           </v-card-text>
-
-          <v-divider />
 
           <!-- Totales -->
-          <v-card-text class="pa-4">
-            <div class="d-flex justify-space-between mb-1 text-body-2">
-              <span class="text-medium-emphasis">Subtotal:</span>
-              <span>{{ formatHNL(carritoStore.getSubtotal()) }}</span>
+          <div class="pa-4 pt-2">
+            <div class="neo-totals-box pa-4">
+              <div class="d-flex justify-space-between align-center mb-2">
+                <div class="d-flex align-center">
+                  <v-icon size="16" class="text-medium-emphasis mr-2">mdi-receipt-text-outline</v-icon>
+                  <span class="text-body-2 text-medium-emphasis">Subtotal</span>
+                </div>
+                <span class="text-body-2">{{ formatHNL(carritoStore.getSubtotal()) }}</span>
+              </div>
+              <div class="d-flex justify-space-between align-center mb-3">
+                <div class="d-flex align-center">
+                  <v-icon size="16" class="text-medium-emphasis mr-2">mdi-percent-outline</v-icon>
+                  <span class="text-body-2 text-medium-emphasis">ISV (15%)</span>
+                </div>
+                <span class="text-body-2">{{ formatHNL(carritoStore.getTax()) }}</span>
+              </div>
+              <v-divider class="mb-3" />
+              <div class="d-flex justify-space-between align-center">
+                <span class="text-subtitle-1 font-weight-bold">Total</span>
+                <span class="text-h6 font-weight-bold text-primary">{{ formatHNL(carritoStore.getTotal()) }}</span>
+              </div>
             </div>
-            <div class="d-flex justify-space-between mb-1 text-body-2">
-              <span class="text-medium-emphasis">ISV:</span>
-              <span>{{ formatHNL(carritoStore.getTax()) }}</span>
-            </div>
-            <div class="neo-divider" />
-            <div class="d-flex justify-space-between text-h6 font-weight-bold">
-              <span>Total:</span>
-              <span class="text-primary">{{ formatHNL(carritoStore.getTotal()) }}</span>
-            </div>
-          </v-card-text>
+          </div>
 
           <!-- Acciones -->
-          <v-card-actions class="pa-4 pt-0">
+          <v-card-actions class="pa-4 pt-2">
             <v-btn
               color="error"
               variant="outlined"
+              size="small"
               @click="carritoStore.clearCart()"
               :disabled="carritoStore.items.length === 0"
             >
-              <v-icon start>mdi-delete-outline</v-icon>
+              <v-icon start size="18">mdi-delete-sweep-outline</v-icon>
               Limpiar
             </v-btn>
             <v-spacer />
             <v-btn
               color="success"
-              size="large"
+              size="x-large"
               @click="showCheckout = true"
               :disabled="carritoStore.items.length === 0"
-              class="px-6"
+              class="px-10 cobrar-btn"
+              elevation="4"
             >
-              <v-icon start>mdi-cash-register</v-icon>
-              Cobrar
+              <v-icon start size="24">mdi-cash-register</v-icon>
+              <span class="text-subtitle-1 font-weight-bold">Cobrar</span>
             </v-btn>
           </v-card-actions>
         </v-card>
@@ -562,15 +671,29 @@ function formatHNL(value: number): string {
 
     <!-- Diálogo de Checkout Multi-Paso -->
     <v-dialog v-model="showCheckout" max-width="520" persistent>
-      <v-card>
+      <v-card class="checkout-card">
+        <!-- Step indicator -->
+        <div class="checkout-steps pt-5 pb-2 d-flex justify-center">
+          <div class="step-indicator">
+            <div class="step-dot" :class="{ active: true }">
+              <v-icon size="14" color="white">mdi-cart-check</v-icon>
+            </div>
+            <div class="step-line" :class="{ active: ['cash','card','processing','done'].includes(checkoutStep) }" />
+            <div class="step-dot" :class="{ active: ['cash','card','processing','done'].includes(checkoutStep) }">
+              <v-icon size="14" :color="['cash','card','processing','done'].includes(checkoutStep) ? 'white' : undefined">mdi-credit-card-outline</v-icon>
+            </div>
+            <div class="step-line" :class="{ active: ['processing','done'].includes(checkoutStep) }" />
+            <div class="step-dot" :class="{ active: ['processing','done'].includes(checkoutStep) }">
+              <v-icon size="14" :color="['processing','done'].includes(checkoutStep) ? 'white' : undefined">mdi-check</v-icon>
+            </div>
+          </div>
+        </div>
+
         <!-- === PASO 1: Selección método de pago === -->
         <template v-if="checkoutStep === 'payment'">
-          <div class="pa-6 text-center">
-            <div class="neo-circle mx-auto mb-3" style="background: linear-gradient(135deg, #66BB6A, #81C784);">
-              <v-icon color="white" size="28">mdi-cash-register</v-icon>
-            </div>
+          <div class="pa-6 pb-3 text-center">
             <h3 class="text-h6 mb-1">Finalizar Venta</h3>
-            <p class="text-h5 font-weight-bold text-primary mt-2">
+            <p class="text-h4 font-weight-bold text-primary mt-2">
               {{ formatHNL(carritoStore.getTotal()) }}
             </p>
           </div>
@@ -624,34 +747,28 @@ function formatHNL(value: number): string {
             <p class="text-subtitle-2 font-weight-bold mb-3">Seleccioná el método de pago</p>
             <v-row dense>
               <v-col cols="6">
-                <v-card
-                  class="pa-4 text-center cursor-pointer"
-                  :color="carritoStore.paymentMethod === 'efectivo' ? 'success' : undefined"
-                  :variant="carritoStore.paymentMethod === 'efectivo' ? 'elevated' : 'outlined'"
+                <div
+                  class="payment-method-card"
+                  :class="{ 'payment-method-card--selected': false }"
                   @click="selectPaymentMethod('efectivo')"
                 >
-                  <v-icon size="36" :color="carritoStore.paymentMethod === 'efectivo' ? 'white' : 'success'">
-                    mdi-cash-multiple
-                  </v-icon>
-                  <div class="text-body-2 font-weight-bold mt-2" :class="carritoStore.paymentMethod === 'efectivo' ? 'text-white' : ''">
-                    Efectivo
+                  <div class="payment-method-icon" style="background: linear-gradient(135deg, #66BB6A, #81C784);">
+                    <v-icon size="24" color="white">mdi-cash-multiple</v-icon>
                   </div>
-                </v-card>
+                  <div class="text-body-2 font-weight-bold mt-2">Efectivo</div>
+                </div>
               </v-col>
               <v-col cols="6">
-                <v-card
-                  class="pa-4 text-center cursor-pointer"
-                  :color="carritoStore.paymentMethod === 'tarjeta' ? 'primary' : undefined"
-                  :variant="carritoStore.paymentMethod === 'tarjeta' ? 'elevated' : 'outlined'"
+                <div
+                  class="payment-method-card"
+                  :class="{ 'payment-method-card--selected': false }"
                   @click="selectPaymentMethod('tarjeta')"
                 >
-                  <v-icon size="36" :color="carritoStore.paymentMethod === 'tarjeta' ? 'white' : 'primary'">
-                    mdi-credit-card-outline
-                  </v-icon>
-                  <div class="text-body-2 font-weight-bold mt-2" :class="carritoStore.paymentMethod === 'tarjeta' ? 'text-white' : ''">
-                    Tarjeta
+                  <div class="payment-method-icon" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
+                    <v-icon size="24" color="white">mdi-credit-card-outline</v-icon>
                   </div>
-                </v-card>
+                  <div class="text-body-2 font-weight-bold mt-2">Tarjeta</div>
+                </div>
               </v-col>
             </v-row>
 
@@ -667,31 +784,34 @@ function formatHNL(value: number): string {
 
         <!-- === PASO 2a: Pago en Efectivo === -->
         <template v-if="checkoutStep === 'cash'">
-          <div class="pa-6 text-center">
-            <div class="neo-circle mx-auto mb-3" style="background: linear-gradient(135deg, #66BB6A, #81C784);">
-              <v-icon color="white" size="28">mdi-cash-multiple</v-icon>
-            </div>
+          <div class="pa-6 pb-3 text-center">
             <h3 class="text-h6 mb-1">Pago en Efectivo</h3>
-            <p class="text-body-2 text-medium-emphasis">
-              Total a cobrar: <strong class="text-primary">{{ formatHNL(carritoStore.getTotal()) }}</strong>
-            </p>
+            <div class="neo-total-badge mx-auto mt-3 mb-1">
+              <span class="text-caption text-medium-emphasis d-block">Total a cobrar</span>
+              <span class="text-h5 font-weight-bold text-primary">{{ formatHNL(carritoStore.getTotal()) }}</span>
+            </div>
           </div>
 
           <v-card-text class="px-6 pb-4">
             <!-- Montos rápidos -->
-            <p class="text-subtitle-2 font-weight-bold mb-2">Monto rápido</p>
-            <div class="d-flex flex-wrap gap-2 mb-4">
-              <v-btn
+            <p class="text-subtitle-2 font-weight-bold mb-3">Seleccionar monto</p>
+            <v-row dense class="mb-4">
+              <v-col
                 v-for="monto in montosRapidos"
                 :key="monto"
-                :variant="montoRecibido === monto ? 'elevated' : 'outlined'"
-                :color="montoRecibido === monto ? 'success' : undefined"
-                size="small"
-                @click="setQuickAmount(monto)"
+                cols="4"
               >
-                {{ formatHNL(monto) }}
-              </v-btn>
-            </div>
+                <v-btn
+                  block
+                  :variant="montoRecibido === monto ? 'elevated' : 'outlined'"
+                  :color="montoRecibido === monto ? 'success' : undefined"
+                  class="quick-amount-btn"
+                  @click="setQuickAmount(monto)"
+                >
+                  {{ formatHNL(monto) }}
+                </v-btn>
+              </v-col>
+            </v-row>
 
             <!-- Monto manual -->
             <v-text-field
@@ -709,11 +829,12 @@ function formatHNL(value: number): string {
             />
 
             <!-- Cambio -->
-            <div v-if="montoRecibido !== null" class="neo-card-pressed pa-4 text-center mb-4">
+            <div v-if="montoRecibido !== null" class="cambio-box text-center mb-4" :class="cashValid ? 'cambio-box--valid' : 'cambio-box--invalid'">
               <p class="text-caption text-medium-emphasis mb-1">CAMBIO A DEVOLVER</p>
               <p class="text-h4 font-weight-bold" :class="cashValid ? 'text-success' : 'text-error'">
                 {{ formatHNL(cambio) }}
               </p>
+              <v-icon v-if="cashValid" color="success" size="20" class="mt-1">mdi-check-circle</v-icon>
             </div>
 
             <v-alert v-if="saleError" type="error" class="mb-3" closable @click:close="saleError = ''">
@@ -729,13 +850,15 @@ function formatHNL(value: number): string {
             <v-spacer />
             <v-btn
               color="success"
-              size="large"
+              size="x-large"
               :disabled="!cashValid"
               :loading="processingPayment"
               @click="finalizarVenta"
+              class="px-8 confirmar-btn"
+              elevation="4"
             >
-              <v-icon start>mdi-check</v-icon>
-              Confirmar Cobro
+              <v-icon start size="22">mdi-check-circle</v-icon>
+              <span class="font-weight-bold">Confirmar Cobro</span>
             </v-btn>
           </v-card-actions>
         </template>
@@ -830,14 +953,17 @@ function formatHNL(value: number): string {
         <!-- === PASO 4: Venta Exitosa === -->
         <template v-if="checkoutStep === 'done'">
           <div class="pa-6 text-center">
-            <v-icon size="72" color="success" class="mb-3">mdi-check-circle-outline</v-icon>
+            <div class="success-icon-wrapper mb-3">
+              <v-icon size="72" color="success" class="success-icon-animate">mdi-check-circle</v-icon>
+            </div>
             <h3 class="text-h5 text-success font-weight-bold mb-2">¡Venta Exitosa!</h3>
             <p class="text-body-2 text-medium-emphasis mb-1">
               {{ lastSaleResponse?.message }}
             </p>
-            <p v-if="carritoStore.paymentMethod === 'efectivo' && montoRecibido" class="text-body-1">
-              Cambio: <strong class="text-success">{{ formatHNL(cambio) }}</strong>
-            </p>
+            <div v-if="carritoStore.paymentMethod === 'efectivo' && montoRecibido" class="cambio-resultado neo-card-pressed pa-3 mt-3 d-inline-block">
+              <span class="text-caption text-medium-emphasis d-block">Cambio</span>
+              <span class="text-h5 text-success font-weight-bold">{{ formatHNL(cambio) }}</span>
+            </div>
           </div>
 
           <v-card-actions class="pa-6 pt-0 d-flex flex-column ga-2">
@@ -1024,11 +1150,13 @@ function formatHNL(value: number): string {
 </template>
 
 <style scoped>
+/* ===== Product Cards ===== */
 .producto-card {
   cursor: pointer;
   transition: var(--neo-transition);
   box-shadow: var(--neo-raised) !important;
   user-select: none;
+  overflow: hidden;
 }
 
 .producto-card:hover {
@@ -1042,31 +1170,136 @@ function formatHNL(value: number): string {
   transform: scale(0.97);
 }
 
-/* Borde de advertencia para stock bajo */
 .producto-card-low-stock {
   border-left: 3px solid rgb(var(--v-theme-warning)) !important;
 }
 
-/* Placeholder de imagen con color de categoría */
+.producto-card-sin-stock {
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+
+/* Image container & overlays */
+.producto-img-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.producto-category-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 10px !important;
+  backdrop-filter: blur(6px);
+  background: rgba(255, 255, 255, 0.85) !important;
+  color: rgba(0, 0, 0, 0.7) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15) !important;
+}
+
+.producto-add-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  backdrop-filter: blur(2px);
+}
+
+.producto-card:hover .producto-add-overlay {
+  opacity: 1;
+}
+
 .producto-placeholder {
-  height: 100px;
-  border-radius: var(--neo-radius-sm) var(--neo-radius-sm) 0 0;
+  height: 110px;
 }
 
-/* FAB del carrito en móvil */
-.mobile-cart-fab {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 100;
+/* Stock bar */
+.stock-bar {
+  height: 3px;
+  background: var(--neo-bg-alt);
+  border-radius: 2px;
+  overflow: hidden;
+  box-shadow: var(--neo-pressed-sm);
 }
 
-.mobile-fab-btn {
-  box-shadow: 0 4px 12px rgba(102, 187, 106, 0.4) !important;
-  min-width: 200px;
+.stock-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
 }
 
+.fill-error { background-color: rgb(var(--v-theme-error)); }
+.fill-warning { background-color: rgb(var(--v-theme-warning)); }
+.fill-success { background-color: rgb(var(--v-theme-success)); }
+
+/* ===== Category Filter ===== */
+.category-filter {
+  scrollbar-width: none;
+  overflow-x: auto;
+}
+
+.category-filter::-webkit-scrollbar {
+  display: none;
+}
+
+.cat-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: var(--neo-radius-xs);
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: var(--neo-bg);
+  box-shadow: var(--neo-raised-sm);
+  color: inherit;
+  transition: var(--neo-transition);
+}
+
+.cat-btn:hover {
+  box-shadow: var(--neo-raised);
+  transform: translateY(-1px);
+}
+
+.cat-btn:active {
+  box-shadow: var(--neo-pressed-sm);
+  transform: scale(0.97);
+}
+
+.cat-btn--active {
+  box-shadow: var(--neo-pressed-sm);
+  background: var(--neo-bg-alt);
+  color: rgb(var(--v-theme-primary));
+  font-weight: 700;
+}
+
+.cat-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--neo-bg-alt);
+  box-shadow: var(--neo-pressed-sm);
+}
+
+.cat-btn--active .cat-count {
+  background: rgb(var(--v-theme-primary));
+  color: white;
+  box-shadow: none;
+}
+
+/* ===== Cart ===== */
 .carrito-card {
   position: sticky;
   top: 80px;
@@ -1077,6 +1310,243 @@ function formatHNL(value: number): string {
 .carrito-header {
   background-color: var(--neo-bg-alt);
   border-radius: var(--neo-radius) var(--neo-radius) 0 0;
+}
+
+.cart-item {
+  border-radius: var(--neo-radius-xs);
+  box-shadow: var(--neo-flat) !important;
+  transition: var(--neo-transition);
+  background: var(--neo-bg);
+}
+
+.cart-item:hover {
+  box-shadow: var(--neo-raised-sm) !important;
+}
+
+/* Quantity control pill */
+.qty-control {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 24px;
+  padding: 2px 4px;
+  background: var(--neo-bg-alt);
+  box-shadow: var(--neo-pressed-sm);
+  gap: 2px;
+}
+
+.qty-value {
+  min-width: 34px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.2s ease;
+}
+
+.qty-value:hover {
+  background: rgba(var(--v-theme-primary), 0.1);
+}
+
+.qty-input {
+  width: 48px;
+  height: 30px;
+  text-align: center;
+  border: 2px solid rgb(var(--v-theme-primary));
+  border-radius: 6px;
+  background: var(--neo-bg);
+  font-size: 14px;
+  font-weight: 700;
+  outline: none;
+  color: inherit;
+  -moz-appearance: textfield;
+}
+
+.qty-input::-webkit-outer-spin-button,
+.qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Totals box */
+.neo-totals-box {
+  background: var(--neo-bg-alt);
+  border-radius: var(--neo-radius-sm);
+  box-shadow: var(--neo-pressed-sm);
+}
+
+/* Cobrar button */
+.cobrar-btn {
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(76, 175, 80, 0.4) !important;
+  letter-spacing: 0.5px !important;
+}
+
+.cobrar-btn:hover {
+  box-shadow: 0 6px 20px rgba(76, 175, 80, 0.5) !important;
+  transform: translateY(-1px);
+}
+
+/* Confirmar button in checkout */
+.confirmar-btn {
+  box-shadow: 0 4px 14px rgba(76, 175, 80, 0.4) !important;
+}
+
+.confirmar-btn:hover {
+  box-shadow: 0 6px 20px rgba(76, 175, 80, 0.5) !important;
+}
+
+/* Payment method cards */
+.payment-method-card {
+  padding: 20px 16px;
+  text-align: center;
+  cursor: pointer;
+  border-radius: var(--neo-radius-sm);
+  background: var(--neo-bg);
+  box-shadow: var(--neo-raised);
+  transition: var(--neo-transition);
+}
+
+.payment-method-card:hover {
+  box-shadow: var(--neo-raised-lg);
+  transform: translateY(-2px);
+}
+
+.payment-method-card:active {
+  box-shadow: var(--neo-pressed);
+  transform: scale(0.97);
+}
+
+.payment-method-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+}
+
+/* ===== Checkout Dialog ===== */
+.checkout-card {
+  overflow: hidden;
+}
+
+.checkout-steps {
+  background: var(--neo-bg-alt);
+  border-radius: var(--neo-radius) var(--neo-radius) 0 0;
+}
+
+.step-indicator {
+  display: flex;
+  align-items: center;
+}
+
+.step-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--neo-bg);
+  box-shadow: var(--neo-raised-sm);
+  color: rgba(0, 0, 0, 0.3);
+  transition: var(--neo-transition);
+}
+
+.step-dot.active {
+  background: linear-gradient(135deg, #4A7BF7, #6B93FF);
+  color: white;
+  box-shadow: 0 2px 10px rgba(74, 123, 247, 0.4);
+}
+
+.step-line {
+  width: 36px;
+  height: 3px;
+  background: var(--neo-bg);
+  box-shadow: var(--neo-pressed-sm);
+  border-radius: 2px;
+  margin: 0 4px;
+  transition: var(--neo-transition);
+}
+
+.step-line.active {
+  background: linear-gradient(90deg, #4A7BF7, #6B93FF);
+  box-shadow: 0 1px 4px rgba(74, 123, 247, 0.3);
+}
+
+/* Total badge in cash step */
+.neo-total-badge {
+  display: inline-block;
+  padding: 12px 24px;
+  border-radius: var(--neo-radius-sm);
+  background: var(--neo-bg-alt);
+  box-shadow: var(--neo-pressed);
+}
+
+/* Quick amount buttons */
+.quick-amount-btn {
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+}
+
+/* Change box */
+.cambio-box {
+  padding: 20px;
+  border-radius: var(--neo-radius-sm);
+  transition: var(--neo-transition);
+}
+
+.cambio-box--valid {
+  background: var(--neo-bg-alt);
+  box-shadow: var(--neo-pressed);
+  border: 2px solid rgb(var(--v-theme-success));
+}
+
+.cambio-box--invalid {
+  background: var(--neo-bg-alt);
+  box-shadow: var(--neo-pressed);
+  border: 2px solid rgb(var(--v-theme-error));
+}
+
+/* Success animation */
+.success-icon-wrapper {
+  display: inline-block;
+}
+
+@keyframes success-bounce {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.2); }
+  70% { transform: scale(0.95); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.success-icon-animate {
+  animation: success-bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.cambio-resultado {
+  border-radius: var(--neo-radius-sm);
+}
+
+/* ===== Mobile ===== */
+.mobile-cart-fab {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+}
+
+.mobile-fab-btn {
+  box-shadow: 0 4px 14px rgba(102, 187, 106, 0.45) !important;
+  min-width: 200px;
 }
 
 .gap-3 {

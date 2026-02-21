@@ -3,6 +3,7 @@ import { shallowRef, computed, triggerRef } from 'vue'
 import { fetchLowStockProducts, fetchTodaySales, subscribeToProducts, subscribeToSales } from '@/services/database'
 import type { LowStockProduct, Product, Sale } from '@/types/supabase'
 import { supabase } from '@/services/supabase'
+import { showLocalNotification } from '@/services/push'
 
 type NotificationType = 'venta' | 'inventario' | 'sistema'
 
@@ -15,16 +16,28 @@ export interface AppNotification {
   read: boolean
 }
 
+export interface NotificationPreferences {
+  sales: boolean
+  lowStock: boolean
+}
+
 const STORAGE_KEY = 'posia.notifications.v1'
+const PREFERENCES_KEY = 'posia.notifications.preferences.v1'
 const MAX_NOTIFICATIONS = 50
+const POLLING_INTERVAL_MS = 15000
 
 export const useNotificacionesStore = defineStore('notificaciones', () => {
   const notifications = shallowRef<AppNotification[]>([])
+  const preferences = shallowRef<NotificationPreferences>({
+    sales: true,
+    lowStock: true
+  })
   const loading = shallowRef(false)
   const initialized = shallowRef(false)
 
   let salesChannel: ReturnType<typeof subscribeToSales> | null = null
   let productsChannel: ReturnType<typeof subscribeToProducts> | null = null
+  let pollingTimer: ReturnType<typeof setInterval> | null = null
 
   const unreadCount = computed(() => notifications.value.filter(n => !n.read).length)
 
@@ -45,15 +58,106 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(notifications.value))
   }
 
-  function addOrUpdateNotification(notification: AppNotification) {
+  function loadPreferences() {
+    try {
+      const raw = localStorage.getItem(PREFERENCES_KEY)
+      if (!raw) return
+
+      const parsed = JSON.parse(raw) as Partial<NotificationPreferences>
+      preferences.value = {
+        sales: parsed.sales ?? true,
+        lowStock: parsed.lowStock ?? true
+      }
+      triggerRef(preferences)
+    } catch (error) {
+      console.error('Error leyendo preferencias de notificaciones:', error)
+      preferences.value = { sales: true, lowStock: true }
+      triggerRef(preferences)
+    }
+  }
+
+  function savePreferences() {
+    localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences.value))
+  }
+
+  function setPreference(key: keyof NotificationPreferences, value: boolean) {
+    preferences.value[key] = value
+    triggerRef(preferences)
+    savePreferences()
+    void savePreferencesToDatabase()
+  }
+
+  async function loadPreferencesFromDatabase() {
+    const {
+      data: { user }
+    } = await supabase.auth.getUser()
+
+    if (!user) return
+
+    const { data, error } = await supabase
+      .from('notification_preferences')
+      .select('sales_push, low_stock_push')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Error cargando preferencias remotas:', error)
+      return
+    }
+
+    if (!data) {
+      await savePreferencesToDatabase()
+      return
+    }
+
+    preferences.value = {
+      sales: data.sales_push,
+      lowStock: data.low_stock_push
+    }
+    triggerRef(preferences)
+    savePreferences()
+  }
+
+  async function savePreferencesToDatabase() {
+    const {
+      data: { user }
+    } = await supabase.auth.getUser()
+
+    if (!user) return
+
+    const { error } = await supabase
+      .from('notification_preferences')
+      .upsert(
+        {
+          user_id: user.id,
+          sales_push: preferences.value.sales,
+          low_stock_push: preferences.value.lowStock,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: 'user_id' }
+      )
+
+    if (error) {
+      console.error('Error guardando preferencias remotas:', error)
+    }
+  }
+
+  function addOrUpdateNotification(
+    notification: AppNotification,
+    options: { preserveRead?: boolean; refreshTimestamp?: boolean } = {}
+  ): boolean {
+    const { preserveRead = false, refreshTimestamp = true } = options
     const index = notifications.value.findIndex(n => n.id === notification.id)
 
     if (index !== -1) {
+      const existing = notifications.value[index]
+      if (!existing) return false
+
       notifications.value[index] = {
-        ...notifications.value[index],
+        ...existing,
         ...notification,
-        read: false,
-        createdAt: new Date().toISOString()
+        read: preserveRead ? existing.read : false,
+        createdAt: refreshTimestamp ? new Date().toISOString() : existing.createdAt
       }
     } else {
       notifications.value.unshift(notification)
@@ -65,6 +169,7 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
 
     triggerRef(notifications)
     saveToStorage()
+    return index === -1
   }
 
   function markAsRead(id: string) {
@@ -94,29 +199,53 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
     saveToStorage()
   }
 
-  function createLowStockNotification(product: Pick<Product, 'id' | 'name' | 'stock' | 'min_stock'>) {
+  function createLowStockNotification(
+    product: Pick<Product, 'id' | 'name' | 'stock' | 'min_stock'>,
+    source: 'initial' | 'realtime' | 'polling' = 'initial'
+  ) {
+    if (!preferences.value.lowStock) return
+
     const stock = product.stock ?? 0
     const minStock = product.min_stock ?? 0
 
-    addOrUpdateNotification({
+    const created = addOrUpdateNotification({
       id: `stock:${product.id}`,
       type: 'inventario',
       title: 'Stock bajo',
       message: `${product.name} está en ${stock} unidades (mínimo ${minStock})`,
       createdAt: new Date().toISOString(),
       read: false
+    }, {
+      preserveRead: true,
+      refreshTimestamp: false
     })
+
+    if (created && source !== 'initial') {
+      notifyInBrowser('Stock bajo', `${product.name} está en ${stock} unidades`)
+    }
   }
 
-  function createSaleNotification(sale: Pick<Sale, 'id' | 'sale_number' | 'total' | 'payment_method'>) {
-    addOrUpdateNotification({
+  function createSaleNotification(
+    sale: Pick<Sale, 'id' | 'sale_number' | 'total' | 'payment_method'>,
+    source: 'initial' | 'realtime' | 'polling' = 'initial'
+  ) {
+    if (!preferences.value.sales) return
+
+    const created = addOrUpdateNotification({
       id: `sale:${sale.id}`,
       type: 'venta',
       title: `Nueva venta ${sale.sale_number}`,
       message: `${formatCurrency(sale.total)} - ${normalizePaymentMethod(sale.payment_method)}`,
       createdAt: new Date().toISOString(),
       read: false
+    }, {
+      preserveRead: true,
+      refreshTimestamp: false
     })
+
+    if (created && source !== 'initial') {
+      notifyInBrowser(`Nueva venta ${sale.sale_number}`, `${formatCurrency(sale.total)}`)
+    }
   }
 
   async function loadInitialNotifications() {
@@ -131,12 +260,37 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
         name: product.name || 'Producto',
         stock: product.stock,
         min_stock: product.min_stock
-      })
+      }, 'initial')
     })
 
     todaySales.slice(0, 5).forEach((sale) => {
-      createSaleNotification(sale)
+      createSaleNotification(sale, 'initial')
     })
+  }
+
+  async function syncLatestData() {
+    try {
+      const [lowStockProducts, todaySales] = await Promise.all([
+        fetchLowStockProducts(),
+        fetchTodaySales()
+      ])
+
+      lowStockProducts.forEach((product: LowStockProduct) => {
+        if (!product.id) return
+        createLowStockNotification({
+          id: product.id,
+          name: product.name || 'Producto',
+          stock: product.stock,
+          min_stock: product.min_stock
+        }, 'polling')
+      })
+
+      todaySales.slice(0, 20).forEach((sale) => {
+        createSaleNotification(sale, 'polling')
+      })
+    } catch (error) {
+      console.error('Error sincronizando notificaciones:', error)
+    }
   }
 
   function startRealtime() {
@@ -145,7 +299,7 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
     salesChannel = subscribeToSales((payload) => {
       if (payload.eventType !== 'INSERT') return
       const sale = payload.new as Sale
-      createSaleNotification(sale)
+      createSaleNotification(sale, 'realtime')
     })
 
     productsChannel = subscribeToProducts((payload) => {
@@ -159,9 +313,15 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
       const isLowStock = currentStock <= minStock
 
       if (isLowStock && !wasLowStock) {
-        createLowStockNotification(updatedProduct)
+        createLowStockNotification(updatedProduct, 'realtime')
       }
     })
+
+    if (!pollingTimer) {
+      pollingTimer = setInterval(() => {
+        void syncLatestData()
+      }, POLLING_INTERVAL_MS)
+    }
   }
 
   function stopRealtime() {
@@ -174,6 +334,11 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
       supabase.removeChannel(productsChannel)
       productsChannel = null
     }
+
+    if (pollingTimer) {
+      clearInterval(pollingTimer)
+      pollingTimer = null
+    }
   }
 
   async function initialize() {
@@ -184,11 +349,16 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
 
     loading.value = true
     loadFromStorage()
+    loadPreferences()
 
     try {
+      await loadPreferencesFromDatabase()
+
       if (notifications.value.length === 0) {
         await loadInitialNotifications()
       }
+
+      await syncLatestData()
       startRealtime()
       initialized.value = true
     } catch (error) {
@@ -207,6 +377,7 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
 
   return {
     notifications,
+    preferences,
     loading,
     initialized,
     unreadCount,
@@ -217,6 +388,8 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
     markAllAsRead,
     removeNotification,
     clearAll
+    ,
+    setPreference
   }
 })
 
@@ -228,4 +401,12 @@ function normalizePaymentMethod(paymentMethod: string): string {
   if (paymentMethod === 'efectivo') return 'Efectivo'
   if (paymentMethod === 'tarjeta') return 'Tarjeta'
   return 'Otro'
+}
+
+function notifyInBrowser(title: string, body: string) {
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+    return
+  }
+
+  void showLocalNotification(title, body)
 }

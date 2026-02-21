@@ -183,6 +183,30 @@ export interface Database {
         }
         Relationships: []
       }
+      notification_preferences: {
+        Row: {
+          user_id: string
+          sales_push: boolean
+          low_stock_push: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          sales_push?: boolean
+          low_stock_push?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          sales_push?: boolean
+          low_stock_push?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       sales: {
         Row: {
           created_at: string | null
@@ -435,6 +459,14 @@ export interface PushSubscription {
   p256dh_key: string | null
   auth_key: string | null
   created_at: string | null
+}
+
+export interface NotificationPreferences {
+  user_id: string
+  sales_push: boolean
+  low_stock_push: boolean
+  created_at: string
+  updated_at: string
 }
 
 export interface UserProfile {

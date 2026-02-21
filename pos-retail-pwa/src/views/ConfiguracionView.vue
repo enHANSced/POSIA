@@ -4,12 +4,15 @@ import { useAuthStore } from '@/stores/auth'
 import { useTheme } from 'vuetify'
 import {
   isPushSupported,
+  isVapidConfigured,
   getExistingPushSubscription,
   subscribeToPushNotifications,
   unsubscribeFromPushNotifications
 } from '@/services/push'
+import { useNotificacionesStore } from '@/stores/notificaciones'
 
 const authStore = useAuthStore()
+const notificacionesStore = useNotificacionesStore()
 const theme = useTheme()
 
 const saving = ref(false)
@@ -17,6 +20,7 @@ const showMessage = ref(false)
 const message = ref('')
 const messageType = ref<'success' | 'error'>('success')
 const pushSupported = ref(false)
+const vapidConfigured = ref(false)
 const pushEnabled = ref(false)
 const pushLoading = ref(false)
 
@@ -43,6 +47,16 @@ const isDarkMode = computed({
   }
 })
 
+const notifySales = computed({
+  get: () => notificacionesStore.preferences.sales,
+  set: (value: boolean) => notificacionesStore.setPreference('sales', value)
+})
+
+const notifyLowStock = computed({
+  get: () => notificacionesStore.preferences.lowStock,
+  set: (value: boolean) => notificacionesStore.setPreference('lowStock', value)
+})
+
 onMounted(async () => {
   // Cargar datos del perfil
   if (authStore.profile) {
@@ -61,8 +75,14 @@ onMounted(async () => {
 
 async function refreshPushState() {
   pushSupported.value = isPushSupported()
+  vapidConfigured.value = isVapidConfigured()
 
   if (!pushSupported.value) {
+    pushEnabled.value = false
+    return
+  }
+
+  if (!vapidConfigured.value) {
     pushEnabled.value = false
     return
   }
@@ -300,9 +320,11 @@ async function changePassword() {
                   <div class="text-body-2 font-weight-medium">Notificaciones push</div>
                   <div class="text-caption text-medium-emphasis">
                     {{
-                      pushSupported
-                        ? (pushEnabled ? 'Activadas en este dispositivo' : 'Desactivadas en este dispositivo')
-                        : 'No soportadas en este navegador'
+                      !pushSupported
+                        ? 'No soportadas en este navegador'
+                        : !vapidConfigured
+                          ? 'Falta configurar VITE_VAPID_PUBLIC_KEY'
+                          : (pushEnabled ? 'Activadas en este dispositivo' : 'Desactivadas en este dispositivo')
                     }}
                   </div>
                 </div>
@@ -312,13 +334,75 @@ async function changePassword() {
                 :color="pushEnabled ? 'warning' : 'primary'"
                 :variant="pushEnabled ? 'outlined' : 'flat'"
                 :loading="pushLoading"
-                :disabled="!pushSupported"
+                :disabled="!pushSupported || !vapidConfigured"
                 size="small"
                 @click="togglePushNotifications"
               >
                 {{ pushEnabled ? 'Desactivar' : 'Activar' }}
               </v-btn>
             </div>
+
+            <div class="neo-card-pressed pa-4 mt-4">
+              <div class="text-caption text-medium-emphasis mb-3">Tipos de notificaciones push</div>
+
+              <div class="d-flex align-center justify-space-between">
+                <div class="d-flex align-center">
+                  <v-icon class="mr-3" size="22">mdi-cash-register</v-icon>
+                  <div>
+                    <div class="text-body-2 font-weight-medium">Ventas</div>
+                    <div class="text-caption text-medium-emphasis">Nueva venta registrada</div>
+                  </div>
+                </div>
+
+                <v-switch
+                  v-model="notifySales"
+                  color="primary"
+                  inset
+                  hide-details
+                  :disabled="!pushEnabled"
+                />
+              </div>
+
+              <v-divider class="my-3" />
+
+              <div class="d-flex align-center justify-space-between">
+                <div class="d-flex align-center">
+                  <v-icon class="mr-3" size="22">mdi-alert-outline</v-icon>
+                  <div>
+                    <div class="text-body-2 font-weight-medium">Stock bajo</div>
+                    <div class="text-caption text-medium-emphasis">Producto por debajo del mínimo</div>
+                  </div>
+                </div>
+
+                <v-switch
+                  v-model="notifyLowStock"
+                  color="primary"
+                  inset
+                  hide-details
+                  :disabled="!pushEnabled"
+                />
+              </div>
+            </div>
+
+            <v-alert
+              v-if="pushSupported && !vapidConfigured"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mt-3"
+              icon="mdi-alert-outline"
+            >
+              Agrega <strong>VITE_VAPID_PUBLIC_KEY</strong> en <strong>pos-retail-pwa/.env</strong> y reinicia <strong>npm run dev</strong>.
+            </v-alert>
+
+            <div v-if="pushSupported && vapidConfigured && !pushEnabled" class="text-caption text-medium-emphasis mt-2 px-1">
+              Activa notificaciones push para elegir qué tipos deseas recibir.
+            </div>
+
+            <div v-if="pushSupported && pushEnabled" class="text-caption text-medium-emphasis mt-2 px-1">
+              Estas preferencias aplican al panel y a notificaciones push con la app cerrada.
+            </div>
+
           </v-card-text>
         </v-card>
 

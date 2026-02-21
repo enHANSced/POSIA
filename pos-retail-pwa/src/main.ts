@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import { registerSW } from 'virtual:pwa-register'
 
 import App from './App.vue'
 import router from './router'
@@ -15,3 +16,7 @@ app.use(router)
 app.use(vuetify)
 
 app.mount('#app')
+
+registerSW({
+	immediate: true
+})

@@ -7,12 +7,13 @@ import {
   eliminarConversacion,
   type IAMessage,
   type IAConversationSummary,
+  type WebSource,
 } from '@/services/edge-functions'
 
 const DEFAULT_PROMPTS = [
   '¿Qué productos se han vendido más esta semana?',
   'Dame alertas de stock bajo y prioridad de reposición.',
-  '¿Cómo van las ventas de hoy frente a la semana?',
+  'Compara mis precios con el mercado local hondureño.',
   'Recomiéndame 3 acciones para aumentar ingresos mañana.'
 ]
 
@@ -109,11 +110,14 @@ export const useIAStore = defineStore('ia', () => {
         conversacionActualId.value = response.conversation_id
       }
 
-      // Agregar respuesta del asistente
+      // Agregar respuesta del asistente con fuentes web si las hay
       const assistantMessage: IAMessage = {
         role: 'assistant',
         content: response.message,
         timestamp: new Date().toISOString(),
+        webSources: response.web_sources,
+        searchQueries: response.search_queries,
+        usedWebSearch: response.used_web_search,
       }
       mensajes.value = [...mensajes.value, assistantMessage]
       triggerRef(mensajes)
@@ -184,31 +188,66 @@ export const useIAStore = defineStore('ia', () => {
   function construirSugerenciasHeuristicas(userMessage: string, assistantMessage: string): string[] {
     const source = `${userMessage} ${assistantMessage}`.toLowerCase()
 
+    // Construir sugerencias combinando temas detectados para mayor variedad
+    const matched: string[] = []
+
     if (/(vendedor|empleado|equipo|rendimiento|desempeñ|desempen)/.test(source)) {
-      return [
+      matched.push(
         'Compárame los 3 mejores vendedores por ingresos y ticket promedio.',
         '¿Qué vendedor necesita apoyo y en qué indicador específico?',
         'Dame un plan de mejora por vendedor para los próximos 7 días.',
         '¿Qué metas diarias recomiendas por vendedor para esta semana?'
-      ]
+      )
     }
 
     if (/(stock|inventario|reposici|quiebre|minimo|mínimo)/.test(source)) {
-      return [
+      matched.push(
         'Prioriza los productos con mayor riesgo de quiebre esta semana.',
         'Sugiéreme cantidades de reposición por producto crítico.',
         '¿Qué productos de bajo stock también son de alta rotación?',
         'Crea un plan de compras para los próximos 5 días.'
-      ]
+      )
     }
 
     if (/(venta|ingreso|ticket|margen|factur|recaud)/.test(source)) {
-      return [
+      matched.push(
         'Compárame hoy vs ayer en ingresos, ticket promedio y cantidad de ventas.',
         '¿Qué productos impulsan más ingresos y cuáles menos?',
         'Dame 3 acciones para subir ticket promedio mañana.',
         '¿Qué método de pago predomina y qué impacto tiene en ventas?'
-      ]
+      )
+    }
+
+    if (/(preci|mercado|competencia|compar|busca|investig)/.test(source)) {
+      matched.push(
+        'Compara mis precios de los 5 productos más vendidos con el mercado.',
+        '¿Qué productos tienen margen bajo comparado con la competencia?',
+        'Sugiéreme ajustes de precios basados en el mercado local.',
+        'Investiga precios de mis productos en supermercados de Honduras.'
+      )
+    }
+
+    if (/(producto|categor|catálogo|catalogo|activ|inactiv)/.test(source)) {
+      matched.push(
+        '¿Qué productos activos no se han vendido esta semana?',
+        'Sugiéreme qué productos desactivar o promocionar.',
+        '¿Qué categorías generan más ingresos y cuáles menos?',
+        'Dame un análisis del catálogo por rentabilidad.'
+      )
+    }
+
+    if (/(notificaci|push|alerta|configur)/.test(source)) {
+      matched.push(
+        '¿Cuántos usuarios tienen las notificaciones activadas?',
+        '¿Qué alertas son más importantes configurar primero?',
+        'Dame un resumen del estado de las notificaciones.',
+        '¿Cómo puedo mejorar la cobertura de alertas push?'
+      )
+    }
+
+    // Si detectamos temas, devolver mezcla de los 4 más relevantes
+    if (matched.length > 0) {
+      return matched.slice(0, 4)
     }
 
     return [...DEFAULT_PROMPTS]

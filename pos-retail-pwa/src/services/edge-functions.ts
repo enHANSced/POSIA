@@ -68,11 +68,19 @@ export interface AgenteIARequest {
   conversation_id?: string
 }
 
+export interface WebSource {
+  url: string
+  title: string
+}
+
 export interface AgenteIAResponse {
   success: boolean
   message: string
   conversation_id: string
   follow_up_suggestions?: string[]
+  web_sources?: WebSource[]
+  search_queries?: string[]
+  used_web_search?: boolean
 }
 
 /**
@@ -104,6 +112,9 @@ export interface IAMessage {
   role: 'user' | 'assistant'
   content: string
   timestamp: string
+  webSources?: WebSource[]
+  searchQueries?: string[]
+  usedWebSearch?: boolean
 }
 
 function esIAMessage(value: unknown): value is IAMessage {
@@ -186,7 +197,11 @@ export interface AnalizarProductoImagenResponse {
     price?: number
     cost?: number
     tax_rate?: number
+    min_stock?: number
   }
+  price_sources?: WebSource[]
+  search_queries?: string[]
+  price_researched?: boolean
 }
 
 export async function analizarProductoImagen(

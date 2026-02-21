@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import { useProductosStore } from '@/stores/productos'
 import { fetchCategories, createCategory, updateCategory, deleteCategory, createProduct, updateProduct, uploadProductImage } from '@/services/database'
-import { analizarProductoImagen } from '@/services/edge-functions'
+import { analizarProductoImagen, type WebSource } from '@/services/edge-functions'
 import type { Category, Product } from '@/types/supabase'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 
@@ -46,6 +46,10 @@ let barcodeDetected = false
 
 // AI suggested category (when not in registered list)
 const suggestedCategoryName = ref('')
+
+// Fuentes de precios investigadas por IA
+const priceSources = ref<WebSource[]>([])
+const priceResearched = ref(false)
 
 // Barcode formats for scanner
 const BARCODE_FORMATS = [
@@ -111,6 +115,8 @@ function openNewForm() {
   selectedImageFile.value = null
   imagePreview.value = ''
   suggestedCategoryName.value = ''
+  priceSources.value = []
+  priceResearched.value = false
   form.value = {
     name: '',
     barcode: '',
@@ -133,6 +139,8 @@ function editProduct(product: Product) {
   selectedImageFile.value = null
   imagePreview.value = product.image_url || ''
   suggestedCategoryName.value = ''
+  priceSources.value = []
+  priceResearched.value = false
   form.value = {
     name: product.name,
     barcode: product.barcode || '',
@@ -271,6 +279,11 @@ async function autocompletarConIA() {
     form.value.price = typeof s.price === 'number' && s.price > 0 ? s.price : form.value.price
     form.value.cost = typeof s.cost === 'number' && s.cost >= 0 ? s.cost : form.value.cost
     form.value.tax_rate = typeof s.tax_rate === 'number' && s.tax_rate >= 0 ? s.tax_rate : form.value.tax_rate
+    form.value.min_stock = typeof s.min_stock === 'number' && s.min_stock > 0 ? s.min_stock : form.value.min_stock
+
+    // Guardar fuentes de precios investigadas
+    priceSources.value = resultado.price_sources || []
+    priceResearched.value = resultado.price_researched || false
 
     suggestedCategoryName.value = ''
     if (s.category_name) {
@@ -661,6 +674,37 @@ function getCategoryName(categoryId: string | null): string {
                   <v-alert v-if="analisisError" type="error" variant="tonal" density="compact" class="mb-4 text-caption w-100">
                     {{ analisisError }}
                   </v-alert>
+
+                  <!-- Indicador de precios investigados en internet -->
+                  <v-expand-transition>
+                    <div v-if="priceResearched && priceSources.length > 0" class="mb-3 w-100">
+                      <v-alert type="success" variant="tonal" density="compact" class="text-caption">
+                        <template #prepend>
+                          <v-icon size="16">mdi-web-check</v-icon>
+                        </template>
+                        <div class="font-weight-medium mb-1">Precio investigado en internet</div>
+                        <div class="d-flex flex-wrap ga-1 mt-1">
+                          <a
+                            v-for="(source, idx) in priceSources.slice(0, 4)"
+                            :key="idx"
+                            :href="source.url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="text-caption d-inline-flex align-center text-success"
+                            style="font-size: 0.65rem !important; text-decoration: none;"
+                          >
+                            <v-icon size="10" class="mr-1">mdi-open-in-new</v-icon>
+                            {{ source.title }}
+                          </a>
+                        </div>
+                      </v-alert>
+                    </div>
+                    <div v-else-if="priceResearched" class="mb-3 w-100">
+                      <v-chip size="x-small" variant="tonal" color="success" prepend-icon="mdi-magnify" density="compact">
+                        Precio estimado con búsqueda web
+                      </v-chip>
+                    </div>
+                  </v-expand-transition>
 
                   <div class="text-caption text-center text-medium-emphasis px-2">
                     <v-icon size="14" class="mr-1" color="primary">mdi-information-outline</v-icon>

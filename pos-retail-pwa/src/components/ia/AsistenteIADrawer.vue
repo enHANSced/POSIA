@@ -49,7 +49,7 @@ function parsearRespuestaIA(texto: string): Array<{ tipo: 'titulo' | 'bullet' | 
     // Detect numbered lists: "1. ", "1) "
     const numberedMatch = linea.match(/^(\d+[.)])\s+(.*)/);
     if (numberedMatch) {
-      return { tipo: 'numbered' as const, valor: numberedMatch[2], prefix: numberedMatch[1], indent }
+      return { tipo: 'numbered' as const, valor: numberedMatch[2] ?? '', prefix: numberedMatch[1] ?? '', indent }
     }
 
     // Detect bullet lists: "- ", "* ", "• "
@@ -106,11 +106,24 @@ watch(model, async () => {
 
 watch(
   () => iaStore.mensajes.length,
-  async () => {
+  async (newLen, oldLen) => {
     await nextTick()
-    if (panelMensajes.value) {
-      panelMensajes.value.scrollTop = panelMensajes.value.scrollHeight
+    if (!panelMensajes.value) return
+
+    // Si el último mensaje es del asistente, scrollear al inicio de ese mensaje
+    const lastMsg = iaStore.mensajes[iaStore.mensajes.length - 1]
+    if (lastMsg?.role === 'assistant' && newLen > (oldLen ?? 0)) {
+      const bubbles = panelMensajes.value.querySelectorAll('.mb-3.d-flex')
+      // El penúltimo es el user, el último es el assistant
+      const userBubble = bubbles[bubbles.length - 2] as HTMLElement | undefined
+      if (userBubble) {
+        userBubble.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
     }
+
+    // Fallback: scroll al final (ej. cuando el usuario envía un mensaje)
+    panelMensajes.value.scrollTop = panelMensajes.value.scrollHeight
   }
 )
 </script>
@@ -239,6 +252,36 @@ watch(
                     <div v-else v-html="linea.valor" class="mt-1">
                     </div>
                   </div>
+                  
+                  <!-- Fuentes web consultadas -->
+                  <div v-if="msg.webSources && msg.webSources.length > 0" class="web-sources-section mt-3 pt-2">
+                    <div class="d-flex align-center mb-1">
+                      <v-icon size="12" color="success" class="mr-1">mdi-web</v-icon>
+                      <span class="text-caption font-weight-medium text-success" style="font-size: 0.7rem !important;">
+                        Fuentes web consultadas
+                      </span>
+                    </div>
+                    <div class="d-flex flex-wrap ga-1">
+                      <a
+                        v-for="(source, sIdx) in msg.webSources.slice(0, 5)"
+                        :key="`src-${index}-${sIdx}`"
+                        :href="source.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="web-source-chip text-caption d-inline-flex align-center px-2 py-1 rounded-pill"
+                      >
+                        <v-icon size="10" class="mr-1">mdi-open-in-new</v-icon>
+                        {{ source.title }}
+                      </a>
+                    </div>
+                  </div>
+
+                  <!-- Badge de búsqueda web usada (sin fuentes específicas) -->
+                  <div v-else-if="msg.usedWebSearch" class="mt-2">
+                    <v-chip size="x-small" variant="tonal" color="success" prepend-icon="mdi-magnify" density="compact">
+                      Respuesta mejorada con búsqueda web
+                    </v-chip>
+                  </div>
                 </template>
                 <template v-else>
                   {{ msg.content }}
@@ -340,6 +383,30 @@ watch(
   border-bottom-left-radius: 4px;
   box-shadow: var(--neo-raised-sm);
   border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* Web sources section */
+.web-sources-section {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.web-source-chip {
+  background-color: rgba(76, 175, 80, 0.08);
+  color: #2e7d32;
+  font-size: 0.65rem !important;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(76, 175, 80, 0.15);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web-source-chip:hover {
+  background-color: rgba(76, 175, 80, 0.16);
+  border-color: rgba(76, 175, 80, 0.3);
+  transform: translateY(-1px);
 }
 
 .neo-suggestion-btn {

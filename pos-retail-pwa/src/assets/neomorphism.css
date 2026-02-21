@@ -296,8 +296,41 @@
    Lists Neomórficas
    ================================================================ */
 
-.v-list {
+/* Listas dentro del navigation drawer son transparentes */
+.v-navigation-drawer .v-list {
   background-color: transparent !important;
+}
+
+/* Overlays (menús, dropdowns, selects) — fondo sólido neomorfismo */
+.v-overlay__content > .v-list,
+.v-overlay__content > .v-sheet,
+.v-menu > .v-overlay__content > .v-list {
+  background-color: var(--neo-bg) !important;
+  border-radius: var(--neo-radius-sm) !important;
+  box-shadow: var(--neo-raised-lg) !important;
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+}
+
+/* Tema oscuro: borde sutil diferente */
+.v-theme--dark .v-overlay__content > .v-list,
+.v-theme--dark .v-overlay__content > .v-sheet,
+.v-theme--dark .v-menu > .v-overlay__content > .v-list {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Items dentro del overlay heredan el fondo del overlay */
+.v-overlay__content .v-list-item {
+  border-radius: var(--neo-radius-xs) !important;
+}
+
+.v-overlay__content .v-list-item:hover {
+  background-color: var(--neo-bg-alt) !important;
+}
+
+/* Select dropdown — contenedor interno */
+.v-overlay__content .v-list-box,
+.v-overlay__content .v-select-list {
+  background-color: var(--neo-bg) !important;
 }
 
 /* ================================================================

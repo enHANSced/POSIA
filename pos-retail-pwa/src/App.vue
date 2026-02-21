@@ -92,11 +92,13 @@ async function handleLogout() {
           <v-icon>{{ (mobile ? !drawer : !rail) ? 'mdi-menu' : 'mdi-menu-open' }}</v-icon>
         </v-btn>
 
-        <v-toolbar-title class="d-flex align-center">
-          <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
-            <v-icon color="white" size="20">mdi-point-of-sale</v-icon>
+        <v-toolbar-title>
+          <div class="d-flex align-center">
+            <div class="neo-circle-sm mr-2" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF); flex-shrink: 0;">
+              <v-icon color="white" size="20">mdi-point-of-sale</v-icon>
+            </div>
+            <span class="text-h6 font-weight-bold d-none d-sm-inline">POS Retail IA</span>
           </div>
-          <span class="text-h6 font-weight-bold">POS Retail IA</span>
         </v-toolbar-title>
 
         <v-spacer />

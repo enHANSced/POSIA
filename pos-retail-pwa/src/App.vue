@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useDisplay } from 'vuetify'
 import { useAuthStore } from '@/stores/auth'
 import AsistenteIADrawer from '@/components/ia/AsistenteIADrawer.vue'
+import NotificacionesPanel from '@/components/notificaciones/NotificacionesPanel.vue'
+import { useNotificacionesStore } from '@/stores/notificaciones'
 
 const authStore = useAuthStore()
+const notificacionesStore = useNotificacionesStore()
 const router = useRouter()
 const route = useRoute()
 const { mobile } = useDisplay()
@@ -13,12 +16,33 @@ const { mobile } = useDisplay()
 // Inicializar autenticación al montar la app
 onMounted(async () => {
   await authStore.initialize()
+
+  if (authStore.isAuthenticated) {
+    await notificacionesStore.initialize()
+  }
+})
+
+watch(
+  () => authStore.isAuthenticated,
+  async (isAuthenticated) => {
+    if (isAuthenticated) {
+      await notificacionesStore.initialize()
+      return
+    }
+
+    notificacionesStore.reset()
+  }
+)
+
+onBeforeUnmount(() => {
+  notificacionesStore.stopRealtime()
 })
 
 // Estado del drawer — cerrado por defecto en móvil
 const drawer = ref(!mobile.value)
 const rail = ref(false)
 const iaDrawer = ref(false)
+const notificationsDrawer = ref(false)
 
 const canUseIA = computed(() => authStore.isAdmin)
 
@@ -78,8 +102,13 @@ async function handleLogout() {
         <v-spacer />
 
         <!-- Badge de notificaciones -->
-        <v-btn icon variant="text" class="neo-btn-icon mr-2">
-          <v-badge color="error" content="3" overlap>
+        <v-btn icon variant="text" class="neo-btn-icon mr-2" @click="notificationsDrawer = true">
+          <v-badge
+            color="error"
+            :content="notificacionesStore.unreadCount > 99 ? '99+' : String(notificacionesStore.unreadCount)"
+            :model-value="notificacionesStore.unreadCount > 0"
+            overlap
+          >
             <v-icon>mdi-bell-outline</v-icon>
           </v-badge>
         </v-btn>
@@ -157,6 +186,7 @@ async function handleLogout() {
       </v-main>
 
       <AsistenteIADrawer v-if="canUseIA" v-model="iaDrawer" />
+      <NotificacionesPanel v-model="notificationsDrawer" />
     </template>
 
     <!-- Login/Guest content -->

@@ -35,6 +35,11 @@ export interface Database {
         Insert: Omit<PushSubscription, 'id' | 'created_at'>
         Update: Partial<Omit<PushSubscription, 'id'>>
       }
+      notification_preferences: {
+        Row: NotificationPreference
+        Insert: Omit<NotificationPreference, 'created_at' | 'updated_at'>
+        Update: Partial<Omit<NotificationPreference, 'user_id'>>
+      }
     }
   }
 }
@@ -126,6 +131,14 @@ export interface PushSubscription {
   auth_key: string | null
   p256dh_key: string | null
   created_at: string
+}
+
+export interface NotificationPreference {
+  user_id: string
+  sales_push: boolean
+  low_stock_push: boolean
+  created_at: string
+  updated_at: string
 }
 
 // Tipos para el carrito

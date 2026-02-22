@@ -30,7 +30,8 @@ export async function registerWithEmail(
     email,
     password,
     options: {
-      data: metadata
+      data: metadata,
+      emailRedirectTo: `${window.location.origin}/auth/callback`
     }
   })
 
@@ -74,7 +75,7 @@ export function onAuthStateChange(
 // Restablecer contraseña
 export async function resetPassword(email: string): Promise<void> {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/reset-password`
+    redirectTo: `${window.location.origin}/auth/callback`
   })
 
   if (error) {

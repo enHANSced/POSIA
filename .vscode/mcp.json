@@ -12,6 +12,13 @@
 				"git+https://github.com/philschmid/gemini-api-docs-mcp",
 				"gemini-docs-mcp"
 			]
+		},
+		"stitch": {
+			"type": "http",
+			"url": "https://stitch.googleapis.com/mcp",
+			"headers": {
+				"X-Goog-Api-Key": "AQ.Ab8RN6Lq3wAL4xzpC-JM1l-A0UsP5Xf3PwwlZ6LJF6NvXIcVIw"
+			}
 		}
 	},
 	"inputs": []

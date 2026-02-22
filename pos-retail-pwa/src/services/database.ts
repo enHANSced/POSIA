@@ -1,5 +1,12 @@
 import { supabase } from './supabase'
-import type { Product, Sale, Category, SaleItem } from '@/types/database.types'
+import type { Product, Sale, Category, SaleItem, LowStockProduct, Json, UserProfile } from '@/types/supabase'
+
+const PRODUCT_IMAGES_BUCKET = import.meta.env.VITE_SUPABASE_PRODUCT_IMAGES_BUCKET || 'product-images'
+
+export type SaleHistoryItem = Sale & {
+  seller_name?: string | null
+  seller_email?: string | null
+}
 
 // ==================== PRODUCTOS ====================
 
@@ -11,7 +18,7 @@ export async function fetchProducts(): Promise<Product[]> {
     .order('name')
 
   if (error) throw error
-  return data || []
+  return (data as unknown as Product[]) || []
 }
 
 export async function fetchProductById(id: string): Promise<Product | null> {
@@ -22,7 +29,7 @@ export async function fetchProductById(id: string): Promise<Product | null> {
     .single()
 
   if (error) throw error
-  return data
+  return data as unknown as Product | null
 }
 
 export async function searchProducts(query: string): Promise<Product[]> {
@@ -34,7 +41,7 @@ export async function searchProducts(query: string): Promise<Product[]> {
     .limit(20)
 
   if (error) throw error
-  return data || []
+  return (data as unknown as Product[]) || []
 }
 
 export async function fetchProductByBarcode(barcode: string): Promise<Product | null> {
@@ -46,7 +53,7 @@ export async function fetchProductByBarcode(barcode: string): Promise<Product | 
     .single()
 
   if (error && error.code !== 'PGRST116') throw error // PGRST116 = no rows
-  return data
+  return data as unknown as Product | null
 }
 
 export async function createProduct(
@@ -60,6 +67,31 @@ export async function createProduct(
 
   if (error) throw error
   return data
+}
+
+export async function uploadProductImage(file: File, productId?: string): Promise<string> {
+  const extension = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+  const safeExtension = extension.replace(/[^a-z0-9]/g, '') || 'jpg'
+  const folder = productId || 'temp'
+  const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${safeExtension}`
+  const filePath = `${folder}/${fileName}`
+
+  const { error: uploadError } = await supabase
+    .storage
+    .from(PRODUCT_IMAGES_BUCKET)
+    .upload(filePath, file, {
+      upsert: false,
+      contentType: file.type || 'image/jpeg'
+    })
+
+  if (uploadError) throw uploadError
+
+  const { data } = supabase
+    .storage
+    .from(PRODUCT_IMAGES_BUCKET)
+    .getPublicUrl(filePath)
+
+  return data.publicUrl
 }
 
 export async function updateProduct(
@@ -77,19 +109,12 @@ export async function updateProduct(
   return data
 }
 
-export async function fetchLowStockProducts(): Promise<Product[]> {
-  const { data, error } = await supabase
-    .from('products')
-    .select('*')
-    .lte('stock', supabase.rpc('get_min_stock'))
-    .eq('active', true)
-
-  // Alternativa sin RPC
-  const { data: products, error: err } = await supabase
+export async function fetchLowStockProducts(): Promise<LowStockProduct[]> {
+  const { data: products, error } = await supabase
     .from('low_stock_products')
     .select('*')
 
-  if (err) throw err
+  if (error) throw error
   return products || []
 }
 
@@ -118,6 +143,30 @@ export async function createCategory(
   return data
 }
 
+export async function updateCategory(
+  id: string,
+  updates: Partial<Pick<Category, 'name' | 'description' | 'color' | 'icon'>>
+): Promise<Category> {
+  const { data, error } = await supabase
+    .from('categories')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('categories')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw error
+}
+
 // ==================== VENTAS ====================
 
 export async function createSale(
@@ -142,7 +191,7 @@ export async function createSale(
     .insert([{
       sale_number: saleNumber,
       seller_id: user.id,
-      items,
+      items: items as unknown as Json,
       subtotal,
       tax_amount: taxAmount,
       discount,
@@ -168,7 +217,7 @@ export async function fetchSalesHistory(
   startDate?: string,
   endDate?: string,
   limit: number = 100
-): Promise<Sale[]> {
+): Promise<SaleHistoryItem[]> {
   let query = supabase
     .from('sales')
     .select('*')
@@ -186,7 +235,41 @@ export async function fetchSalesHistory(
   const { data, error } = await query
 
   if (error) throw error
-  return data || []
+
+  const sales = (data || []) as Sale[]
+  const sellerIds = Array.from(
+    new Set(
+      sales
+        .map(sale => sale.seller_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    )
+  )
+
+  if (sellerIds.length === 0) {
+    return sales
+  }
+
+  const { data: sellerProfiles, error: sellerError } = await supabase
+    .from('user_profiles')
+    .select('id, full_name, email')
+    .in('id', sellerIds)
+
+  if (sellerError) {
+    return sales
+  }
+
+  const sellerMap = new Map(
+    (sellerProfiles || []).map(profile => [profile.id, profile])
+  )
+
+  return sales.map(sale => {
+    const seller = sale.seller_id ? sellerMap.get(sale.seller_id) : null
+    return {
+      ...sale,
+      seller_name: seller?.full_name || null,
+      seller_email: seller?.email || null
+    }
+  })
 }
 
 export async function fetchTodaySales(): Promise<Sale[]> {
@@ -215,7 +298,7 @@ export async function getSalesSummary(startDate: string, endDate: string) {
 
   const totalSales = data?.length || 0
   const totalRevenue = data?.reduce((acc, sale) => acc + sale.total, 0) || 0
-  const totalTax = data?.reduce((acc, sale) => acc + sale.tax_amount, 0) || 0
+  const totalTax = data?.reduce((acc, sale) => acc + (sale.tax_amount || 0), 0) || 0
 
   return {
     totalSales,
@@ -266,7 +349,7 @@ export async function updateProductStock(
       await supabase
         .from('products')
         .update({ 
-          stock: product.stock + quantity,
+          stock: (product.stock || 0) + quantity,
           updated_at: new Date().toISOString()
         })
         .eq('id', productId)
@@ -274,6 +357,26 @@ export async function updateProductStock(
   } else if (updateError) {
     throw updateError
   }
+}
+
+export async function fetchInventoryMovements(limit: number = 200) {
+  const { data, error } = await supabase
+    .from('inventory_movements')
+    .select('id, product_id, type, quantity, reason, user_id, created_at, products(name, sku, barcode)')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) throw error
+  return data || []
+}
+
+export async function adjustInventory(
+  productId: string,
+  quantityDelta: number,
+  reason: string
+): Promise<void> {
+  const type = quantityDelta >= 0 ? 'entry' : 'adjustment'
+  await updateProductStock(productId, quantityDelta, type, reason)
 }
 
 // ==================== REALTIME ====================
@@ -299,6 +402,46 @@ export function subscribeToSales(
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'sales' },
+      (payload) => callback(payload as any)
+    )
+    .subscribe()
+}
+
+// ==================== EMPLEADOS ====================
+
+export async function fetchEmployees(): Promise<UserProfile[]> {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (error) throw error
+  return data || []
+}
+
+export async function updateEmployeeProfile(
+  id: string,
+  updates: Partial<Pick<UserProfile, 'full_name' | 'phone' | 'role' | 'active'>>
+): Promise<UserProfile> {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export function subscribeToEmployees(
+  callback: (payload: { eventType: string; new: UserProfile; old: UserProfile }) => void
+) {
+  return supabase
+    .channel('employees-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'user_profiles' },
       (payload) => callback(payload as any)
     )
     .subscribe()

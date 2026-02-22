@@ -1,0 +1,560 @@
+/* ================================================================
+   Sistema de Diseño Neomorfismo Sutil - POS Retail IA
+   ================================================================
+   Sombras suaves, bordes redondeados, estados raised/pressed.
+   Compatible con temas claro y oscuro de Vuetify.
+   ================================================================ */
+
+/* ---- Variables ---- */
+:root {
+  /* Neomorfismo Light */
+  --neo-bg: #e4e8ec;
+  --neo-bg-alt: #dfe3e7;
+  --neo-shadow-dark: rgba(163, 177, 198, 0.6);
+  --neo-shadow-light: rgba(255, 255, 255, 0.8);
+  --neo-shadow-dark-strong: rgba(140, 155, 175, 0.7);
+  --neo-shadow-light-strong: rgba(255, 255, 255, 0.95);
+  --neo-radius: 16px;
+  --neo-radius-sm: 12px;
+  --neo-radius-xs: 8px;
+  --neo-transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Raised (elementos elevados) */
+  --neo-raised: 
+    6px 6px 12px var(--neo-shadow-dark),
+    -6px -6px 12px var(--neo-shadow-light);
+  --neo-raised-sm: 
+    4px 4px 8px var(--neo-shadow-dark),
+    -4px -4px 8px var(--neo-shadow-light);
+  --neo-raised-lg: 
+    8px 8px 16px var(--neo-shadow-dark),
+    -8px -8px 16px var(--neo-shadow-light);
+
+  /* Pressed (elementos hundidos) */
+  --neo-pressed: 
+    inset 3px 3px 6px var(--neo-shadow-dark),
+    inset -3px -3px 6px var(--neo-shadow-light);
+  --neo-pressed-sm: 
+    inset 2px 2px 4px var(--neo-shadow-dark),
+    inset -2px -2px 4px var(--neo-shadow-light);
+
+  /* Inset suave para inputs */
+  --neo-inset: 
+    inset 2px 2px 5px var(--neo-shadow-dark),
+    inset -2px -2px 5px var(--neo-shadow-light);
+
+  /* Flat (sin sombra) */
+  --neo-flat: 
+    1px 1px 2px var(--neo-shadow-dark),
+    -1px -1px 2px var(--neo-shadow-light);
+}
+
+/* ---- Variables Dark Mode ---- */
+.v-theme--dark {
+  --neo-bg: #1e1e2e;
+  --neo-bg-alt: #232336;
+  --neo-shadow-dark: rgba(10, 10, 20, 0.6);
+  --neo-shadow-light: rgba(50, 50, 70, 0.4);
+  --neo-shadow-dark-strong: rgba(5, 5, 15, 0.7);
+  --neo-shadow-light-strong: rgba(60, 60, 85, 0.5);
+}
+
+/* ================================================================
+   Override Global Vuetify: Backgrounds
+   ================================================================ */
+
+/* Fondo general de la app */
+.v-application {
+  background-color: var(--neo-bg) !important;
+}
+
+.v-main {
+  background-color: var(--neo-bg) !important;
+}
+
+/* ================================================================
+   Tarjetas Neomórficas
+   ================================================================ */
+
+/* Tarjeta base neomórfica */
+.v-card {
+  background-color: var(--neo-bg) !important;
+  border-radius: var(--neo-radius) !important;
+  box-shadow: var(--neo-raised) !important;
+  border: none !important;
+  transition: var(--neo-transition);
+}
+
+.v-card:hover {
+  box-shadow: var(--neo-raised-lg) !important;
+}
+
+/* Card clickable - efecto pressed al hacer click */
+.v-card--link:active,
+.v-card[role="button"]:active {
+  box-shadow: var(--neo-pressed) !important;
+}
+
+/* Card con variante flat */
+.v-card--variant-flat {
+  box-shadow: var(--neo-flat) !important;
+}
+
+/* Card elevada especial */
+.neo-card-raised {
+  box-shadow: var(--neo-raised-lg) !important;
+}
+
+/* Card hundida */
+.neo-card-pressed {
+  box-shadow: var(--neo-pressed) !important;
+  background-color: var(--neo-bg-alt) !important;
+}
+
+/* ================================================================
+   Botones Neomórficos
+   ================================================================ */
+
+.v-btn {
+  border-radius: var(--neo-radius-sm) !important;
+  transition: var(--neo-transition);
+  text-transform: none !important;
+  letter-spacing: 0.3px !important;
+  font-weight: 500 !important;
+}
+
+/* Botón elevado */
+.v-btn--variant-elevated,
+.v-btn--variant-flat {
+  box-shadow: var(--neo-raised-sm) !important;
+}
+
+.v-btn--variant-elevated:hover,
+.v-btn--variant-flat:hover {
+  box-shadow: var(--neo-raised) !important;
+}
+
+.v-btn--variant-elevated:active,
+.v-btn--variant-flat:active {
+  box-shadow: var(--neo-pressed-sm) !important;
+  transform: scale(0.98);
+}
+
+/* Botón outlined neomórfico */
+.v-btn--variant-outlined {
+  box-shadow: var(--neo-flat) !important;
+  border-color: transparent !important;
+  background-color: var(--neo-bg) !important;
+}
+
+.v-btn--variant-outlined:hover {
+  box-shadow: var(--neo-raised-sm) !important;
+}
+
+.v-btn--variant-outlined:active {
+  box-shadow: var(--neo-pressed-sm) !important;
+}
+
+/* Botón de icono */
+.v-btn--icon {
+  box-shadow: var(--neo-raised-sm) !important;
+  border-radius: 50% !important;
+  background-color: var(--neo-bg) !important;
+}
+
+.v-btn--icon:active {
+  box-shadow: var(--neo-pressed-sm) !important;
+}
+
+/* Botón size x-small en listas */
+.v-btn--size-x-small.v-btn--icon {
+  box-shadow: var(--neo-flat) !important;
+}
+
+/* ================================================================
+   Inputs Neomórficos (Text Fields, Selects)
+   ================================================================ */
+
+.v-field {
+  border-radius: var(--neo-radius-sm) !important;
+  transition: var(--neo-transition);
+}
+
+/* Campo outlined con efecto inset */
+.v-field--variant-outlined {
+  box-shadow: var(--neo-inset) !important;
+  background-color: var(--neo-bg-alt) !important;
+}
+
+/* Ocultar solo las líneas del borde, no el label flotante */
+.v-field--variant-outlined .v-field__outline__start,
+.v-field--variant-outlined .v-field__outline__end,
+.v-field--variant-outlined .v-field__outline__notch::before,
+.v-field--variant-outlined .v-field__outline__notch::after {
+  border-color: transparent !important;
+}
+
+.v-field--variant-outlined.v-field--focused {
+  box-shadow: var(--neo-pressed) !important;
+}
+
+/* ================================================================
+   App Bar Neomórfica
+   ================================================================ */
+
+.v-app-bar {
+  box-shadow: var(--neo-raised-sm) !important;
+}
+
+/* ================================================================
+   Navigation Drawer Neomórfico
+   ================================================================ */
+
+.v-navigation-drawer {
+  background-color: var(--neo-bg) !important;
+  box-shadow: var(--neo-raised-sm) !important;
+  border-right: none !important;
+}
+
+.v-navigation-drawer .v-list-item--active {
+  box-shadow: var(--neo-pressed-sm) !important;
+  border-radius: var(--neo-radius-xs) !important;
+  background-color: var(--neo-bg-alt) !important;
+}
+
+.v-navigation-drawer .v-list-item:not(.v-list-item--active):hover {
+  box-shadow: var(--neo-flat) !important;
+  border-radius: var(--neo-radius-xs) !important;
+}
+
+/* ================================================================
+   Chips Neomórficos
+   ================================================================ */
+
+.v-chip {
+  box-shadow: var(--neo-flat) !important;
+  border-radius: 20px !important;
+}
+
+.v-chip--variant-elevated {
+  box-shadow: var(--neo-raised-sm) !important;
+}
+
+/* ================================================================
+   Tabs Neomórficos
+   ================================================================ */
+
+.v-tabs {
+  box-shadow: var(--neo-pressed-sm) !important;
+  border-radius: 0 !important;
+}
+
+.v-tab--selected {
+  box-shadow: var(--neo-raised-sm) !important;
+}
+
+/* ================================================================
+   Tablas Neomórficas
+   ================================================================ */
+
+.v-data-table {
+  background-color: var(--neo-bg) !important;
+  border-radius: var(--neo-radius-sm) !important;
+}
+
+.v-data-table thead th {
+  background-color: var(--neo-bg-alt) !important;
+  font-weight: 600 !important;
+}
+
+.v-data-table tbody tr:hover {
+  background-color: var(--neo-bg-alt) !important;
+}
+
+/* ================================================================
+   Diálogos Neomórficos
+   ================================================================ */
+
+.v-dialog > .v-card {
+  box-shadow: var(--neo-raised-lg) !important;
+  border-radius: var(--neo-radius) !important;
+}
+
+/* ================================================================
+   Badges y Avatares
+   ================================================================ */
+
+.v-avatar {
+  box-shadow: var(--neo-raised-sm) !important;
+}
+
+.v-badge .v-badge__badge {
+  box-shadow: var(--neo-flat) !important;
+}
+
+/* ================================================================
+   Lists Neomórficas
+   ================================================================ */
+
+/* Listas dentro del navigation drawer son transparentes */
+.v-navigation-drawer .v-list {
+  background-color: transparent !important;
+}
+
+/* Overlays (menús, dropdowns, selects) — fondo sólido neomorfismo */
+.v-overlay__content > .v-list,
+.v-overlay__content > .v-sheet,
+.v-menu > .v-overlay__content > .v-list {
+  background-color: var(--neo-bg) !important;
+  border-radius: var(--neo-radius-sm) !important;
+  box-shadow: var(--neo-raised-lg) !important;
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+}
+
+/* Tema oscuro: borde sutil diferente */
+.v-theme--dark .v-overlay__content > .v-list,
+.v-theme--dark .v-overlay__content > .v-sheet,
+.v-theme--dark .v-menu > .v-overlay__content > .v-list {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Items dentro del overlay heredan el fondo del overlay */
+.v-overlay__content .v-list-item {
+  border-radius: var(--neo-radius-xs) !important;
+}
+
+.v-overlay__content .v-list-item:hover {
+  background-color: var(--neo-bg-alt) !important;
+}
+
+/* Select dropdown — contenedor interno */
+.v-overlay__content .v-list-box,
+.v-overlay__content .v-select-list {
+  background-color: var(--neo-bg) !important;
+}
+
+/* ================================================================
+   Alertas Neomórficas
+   ================================================================ */
+
+.v-alert {
+  border-radius: var(--neo-radius-sm) !important;
+  box-shadow: var(--neo-flat) !important;
+}
+
+/* ================================================================
+   Switchs Neomórficos
+   ================================================================ */
+
+.v-switch .v-switch__track {
+  box-shadow: var(--neo-pressed-sm) !important;
+}
+
+/* ================================================================
+   Progress Neomórfico
+   ================================================================ */
+
+.v-progress-circular {
+  filter: drop-shadow(2px 2px 4px var(--neo-shadow-dark));
+}
+
+/* ================================================================
+   Snackbar Neomórfico
+   ================================================================ */
+
+.v-snackbar__content {
+  border-radius: var(--neo-radius-sm) !important;
+}
+
+/* ================================================================
+   Utilidades Neomórficas Personalizadas
+   ================================================================ */
+
+/* Fondo neomórfico para secciones */
+.neo-bg {
+  background-color: var(--neo-bg) !important;
+}
+
+.neo-bg-alt {
+  background-color: var(--neo-bg-alt) !important;
+}
+
+/* Sombras utilitarias */
+.neo-raised {
+  box-shadow: var(--neo-raised) !important;
+}
+
+.neo-raised-sm {
+  box-shadow: var(--neo-raised-sm) !important;
+}
+
+.neo-raised-lg {
+  box-shadow: var(--neo-raised-lg) !important;
+}
+
+.neo-pressed {
+  box-shadow: var(--neo-pressed) !important;
+}
+
+.neo-pressed-sm {
+  box-shadow: var(--neo-pressed-sm) !important;
+}
+
+.neo-inset {
+  box-shadow: var(--neo-inset) !important;
+}
+
+.neo-flat {
+  box-shadow: var(--neo-flat) !important;
+}
+
+/* Bordes redondeados neomórficos */
+.neo-rounded {
+  border-radius: var(--neo-radius) !important;
+}
+
+.neo-rounded-sm {
+  border-radius: var(--neo-radius-sm) !important;
+}
+
+.neo-rounded-xs {
+  border-radius: var(--neo-radius-xs) !important;
+}
+
+/* Indicador circular neomórfico */
+.neo-circle {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background-color: var(--neo-bg);
+  box-shadow: var(--neo-raised);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.neo-circle-sm {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: var(--neo-bg);
+  box-shadow: var(--neo-raised-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Barra de separación neomórfica */
+.neo-divider {
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    var(--neo-shadow-dark),
+    transparent,
+    var(--neo-shadow-light)
+  );
+  border: none;
+  margin: 16px 0;
+}
+
+/* Stat card especial para reportes */
+.neo-stat-card {
+  background-color: var(--neo-bg) !important;
+  box-shadow: var(--neo-raised) !important;
+  border-radius: var(--neo-radius) !important;
+  padding: 24px;
+  text-align: center;
+  transition: var(--neo-transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.neo-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: var(--neo-radius) var(--neo-radius) 0 0;
+}
+
+.neo-stat-card:hover {
+  box-shadow: var(--neo-raised-lg) !important;
+  transform: translateY(-2px);
+}
+
+.neo-stat-card .neo-stat-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  box-shadow: var(--neo-pressed);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px;
+}
+
+/* Scrollbar neomórfica */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--neo-bg);
+  box-shadow: var(--neo-pressed-sm);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--neo-shadow-dark);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(140, 155, 175, 0.8);
+}
+
+/* ================================================================
+   Animaciones suaves
+   ================================================================ */
+
+@keyframes neo-pulse {
+  0%, 100% {
+    box-shadow: var(--neo-raised);
+  }
+  50% {
+    box-shadow: var(--neo-raised-lg);
+  }
+}
+
+.neo-pulse {
+  animation: neo-pulse 2s ease-in-out infinite;
+}
+
+/* Transición de entrada para cards */
+@keyframes neo-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    box-shadow: none;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    box-shadow: var(--neo-raised);
+  }
+}
+
+.neo-animate-in {
+  animation: neo-fade-in 0.4s ease-out forwards;
+}
+
+/* ================================================================
+   Moneda HNL - formato visual
+   ================================================================ */
+.currency-hnl::before {
+  content: 'L ';
+  font-weight: 600;
+}

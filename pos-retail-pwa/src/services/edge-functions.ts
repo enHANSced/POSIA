@@ -96,7 +96,8 @@ export async function enviarMensajeIA(request: AgenteIARequest): Promise<AgenteI
   })
 
   if (error) {
-    throw new Error(error.message || 'Error al comunicarse con el agente IA')
+    const msg = data?.error || error.message || 'Error al comunicarse con el agente IA'
+    throw new Error(msg)
   }
 
   if (data?.error) {
@@ -217,7 +218,8 @@ export async function analizarProductoImagen(
   })
 
   if (error) {
-    throw new Error(error.message || 'Error al analizar imagen de producto')
+    const msg = data?.error || error.message || 'Error al analizar imagen de producto'
+    throw new Error(msg)
   }
 
   if (data?.error) {

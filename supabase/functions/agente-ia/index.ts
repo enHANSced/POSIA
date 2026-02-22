@@ -12,6 +12,8 @@ const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/
 
 const SYSTEM_INSTRUCTION = `Eres un analista senior del sistema POS Retail IA.
 La moneda es HNL (Lempiras hondureños), prefijo L.
+Formato de 12 horas para horas (AM/PM).
+Ve directo al grano pero actua como profesional experto en análisis de datos de retail, ventas, inventarios, desempeño de vendedores, precios y mercado local hondureño.
 
 Tu contexto cubre TODO el sistema:
 - Ventas y rendimiento por periodos
@@ -40,13 +42,12 @@ Objetivos:
 5) Cuando sea relevante, buscar precios y datos en internet para comparar con los datos internos del sistema
 
 SUGERENCIAS DE SEGUIMIENTO:
-Al final de CADA respuesta, agrega un bloque especial con 4 preguntas de seguimiento relevantes.
+Al final de CADA respuesta, agrega un bloque especial con 3 preguntas de seguimiento relevantes, que sean como sugerencias de prompt al usuario para continuar la conversacion, que sean breves.
 Usa EXACTAMENTE este formato (las etiquetas son obligatorias):
 [SUGERENCIAS]
 1. Primera pregunta de seguimiento específica y accionable
 2. Segunda pregunta de seguimiento diferente
 3. Tercera pregunta de seguimiento que profundice otro ángulo
-4. Cuarta pregunta de seguimiento complementaria
 [/SUGERENCIAS]
 
 Las sugerencias deben ser:
@@ -156,6 +157,19 @@ type SystemOverview = {
     created_at: string | null;
     product_name: string | null;
   }>;
+  recent_products_added: Array<{
+    id: string;
+    name: string;
+    stock: number | null;
+    min_stock: number | null;
+    price: number | null;
+    created_at: string | null;
+    category_name: string | null;
+  }>;
+  products_added_summary: {
+    last_7_days: number;
+    last_30_days: number;
+  };
   products_summary: {
     active_products: number;
     inactive_products: number;
@@ -171,6 +185,55 @@ type SystemOverview = {
     sales_push_enabled_users: number;
     low_stock_push_enabled_users: number;
   };
+};
+
+type ProductBasicRow = {
+  id: string;
+  name: string | null;
+  stock: number | null;
+  min_stock: number | null;
+  price: number | null;
+  created_at: string | null;
+  category_id: string | null;
+};
+
+type CategoryBasicRow = {
+  id: string;
+  name: string;
+};
+
+type ProductNameRow = {
+  id: string;
+  name: string | null;
+};
+
+type InventoryMovementRow = {
+  type: string;
+  quantity: number | null;
+  reason: string | null;
+  created_at: string | null;
+  product_id: string;
+};
+
+type TopProductRow = {
+  name: string | null;
+  units_sold: number | null;
+  stock: number | null;
+  price: number | null;
+};
+
+type LowStockRow = {
+  id: string | null;
+  name: string | null;
+  stock: number | null;
+  min_stock: number | null;
+  category_name: string | null;
+};
+
+type NotificationPreferenceRow = {
+  user_id: string;
+  sales_push: boolean;
+  low_stock_push: boolean;
 };
 
 function maxDateIso(a: string | null, b: string | null): string | null {
@@ -274,6 +337,9 @@ async function fetchSystemOverview(supabaseAdmin: ReturnType<typeof createClient
     topProductsRes,
     lowStockRes,
     movementsRes,
+    recentProductsRes,
+    productsAdded7dRes,
+    productsAdded30dRes,
     activeProductsCountRes,
     inactiveProductsCountRes,
     profilesRes,
@@ -285,15 +351,89 @@ async function fetchSystemOverview(supabaseAdmin: ReturnType<typeof createClient
     supabaseAdmin.from("low_stock_products").select("id, name, stock, min_stock, category_name").limit(10),
     supabaseAdmin
       .from("inventory_movements")
-      .select("type, quantity, reason, created_at, products(name)")
+      .select("type, quantity, reason, created_at, product_id")
       .order("created_at", { ascending: false })
       .limit(12),
+    supabaseAdmin
+      .from("products")
+      .select("id, name, stock, min_stock, price, created_at, category_id")
+      .order("created_at", { ascending: false })
+      .limit(15),
+    supabaseAdmin
+      .from("products")
+      .select("id", { head: true, count: "exact" })
+      .gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
+    supabaseAdmin
+      .from("products")
+      .select("id", { head: true, count: "exact" })
+      .gte("created_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
     supabaseAdmin.from("products").select("id", { head: true, count: "exact" }).eq("active", true),
     supabaseAdmin.from("products").select("id", { head: true, count: "exact" }).eq("active", false),
     supabaseAdmin.from("user_profiles").select("role, active"),
     supabaseAdmin.from("push_subscriptions").select("id", { head: true, count: "exact" }),
     supabaseAdmin.from("notification_preferences").select("user_id, sales_push, low_stock_push"),
   ]);
+
+  const queryErrors = [
+    salesTodayRes.error,
+    topProductsRes.error,
+    lowStockRes.error,
+    movementsRes.error,
+    recentProductsRes.error,
+    productsAdded7dRes.error,
+    productsAdded30dRes.error,
+    activeProductsCountRes.error,
+    inactiveProductsCountRes.error,
+    profilesRes.error,
+    subsCountRes.error,
+    prefsRes.error,
+  ].filter(Boolean);
+
+  if (queryErrors.length > 0) {
+    throw queryErrors[0];
+  }
+
+  const productsFromMovements = new Set(
+    (movementsRes.data || [])
+      .map((row: InventoryMovementRow) => row.product_id)
+      .filter((id): id is string => Boolean(id)),
+  );
+
+  const { data: movementProductsData, error: movementProductsError } = productsFromMovements.size > 0
+    ? await supabaseAdmin
+      .from("products")
+      .select("id, name")
+      .in("id", Array.from(productsFromMovements))
+    : { data: [], error: null };
+
+  if (movementProductsError) {
+    throw movementProductsError;
+  }
+
+  const productNameMap = new Map(
+    ((movementProductsData || []) as ProductNameRow[]).map((row) => [row.id, row.name || "Producto"]),
+  );
+
+  const recentProducts = (recentProductsRes.data || []) as ProductBasicRow[];
+  const categoryIds = Array.from(
+    new Set(
+      recentProducts
+        .map((row) => row.category_id)
+        .filter((id: string | null): id is string => Boolean(id)),
+    ),
+  );
+
+  const { data: categoriesData, error: categoriesError } = categoryIds.length > 0
+    ? await supabaseAdmin.from("categories").select("id, name").in("id", categoryIds)
+    : { data: [], error: null };
+
+  if (categoriesError) {
+    throw categoriesError;
+  }
+
+  const categoryNameMap = new Map(
+    ((categoriesData || []) as CategoryBasicRow[]).map((row) => [row.id, row.name]),
+  );
 
   const salesToday = salesTodayRes.data || {
     total_sales: 0,
@@ -312,7 +452,7 @@ async function fetchSystemOverview(supabaseAdmin: ReturnType<typeof createClient
     }
   }
 
-  const preferences = prefsRes.data || [];
+  const preferences = (prefsRes.data || []) as NotificationPreferenceRow[];
   const salesPushEnabledUsers = preferences.filter((item) => item.sales_push !== false).length;
   const lowStockPushEnabledUsers = preferences.filter((item) => item.low_stock_push !== false).length;
 
@@ -323,26 +463,39 @@ async function fetchSystemOverview(supabaseAdmin: ReturnType<typeof createClient
       total_revenue: Number(salesToday.total_revenue || 0),
       average_sale: Number(salesToday.average_sale || 0),
     },
-    top_products: (topProductsRes.data || []).map((row) => ({
+    top_products: ((topProductsRes.data || []) as TopProductRow[]).map((row) => ({
       name: row.name || "Producto",
       units_sold: Number(row.units_sold || 0),
       stock: row.stock,
       price: row.price,
     })),
-    low_stock_alerts: (lowStockRes.data || []).map((row) => ({
+    low_stock_alerts: ((lowStockRes.data || []) as LowStockRow[]).map((row) => ({
       id: row.id || "",
       name: row.name || "Producto",
       stock: Number(row.stock || 0),
       min_stock: Number(row.min_stock || 0),
       category_name: row.category_name,
     })),
-    inventory_recent_movements: (movementsRes.data || []).map((row: any) => ({
+    inventory_recent_movements: (movementsRes.data || []).map((row: InventoryMovementRow) => ({
       type: row.type,
       quantity: Number(row.quantity || 0),
       reason: row.reason,
       created_at: row.created_at,
-      product_name: row.products?.name || null,
+      product_name: productNameMap.get(row.product_id) || null,
     })),
+    recent_products_added: recentProducts.map((row) => ({
+      id: row.id,
+      name: row.name || "Producto",
+      stock: row.stock,
+      min_stock: row.min_stock,
+      price: row.price,
+      created_at: row.created_at,
+      category_name: row.category_id ? (categoryNameMap.get(row.category_id) || null) : null,
+    })),
+    products_added_summary: {
+      last_7_days: productsAdded7dRes.count || 0,
+      last_30_days: productsAdded30dRes.count || 0,
+    },
     products_summary: {
       active_products: activeProductsCountRes.count || 0,
       inactive_products: inactiveProductsCountRes.count || 0,
@@ -372,6 +525,39 @@ function buildPromptPayload(
   systemOverview: SystemOverview,
   compact = false,
 ) {
+  const summarizeBusinessContext = (context: unknown) => {
+    if (!context || typeof context !== "object") return context;
+
+    const obj = context as Record<string, unknown>;
+    const tables = Array.isArray(obj.tables) ? obj.tables : [];
+    const views = Array.isArray(obj.views) ? obj.views : [];
+
+    if (tables.length === 0 && views.length === 0) {
+      return context;
+    }
+
+    const summarizeEntities = (entities: unknown[]) =>
+      entities.slice(0, 15).map((entity) => {
+        const item = (entity || {}) as Record<string, unknown>;
+        return {
+          name: typeof item.name === "string" ? item.name : "sin_nombre",
+          row_count: Number(item.row_count || 0),
+          columns_count: Array.isArray(item.columns) ? item.columns.length : 0,
+          sample_rows_count: Array.isArray(item.sample_rows) ? item.sample_rows.length : 0,
+        };
+      });
+
+    return {
+      generated_at: obj.generated_at || null,
+      schema: obj.schema || "public",
+      row_limit: Number(obj.row_limit || 0),
+      tables_total: tables.length,
+      views_total: views.length,
+      tables_summary: summarizeEntities(tables),
+      views_summary: summarizeEntities(views),
+    };
+  };
+
   if (!compact) {
     return {
       business_context: businessContext,
@@ -388,7 +574,7 @@ function buildPromptPayload(
   }));
 
   return {
-    business_context: businessContext,
+    business_context: summarizeBusinessContext(businessContext),
     seller_performance_summary: {
       period_days: sellerPerformance.period_days,
       sellers_analyzed: sellerPerformance.sellers_analyzed,
@@ -397,11 +583,35 @@ function buildPromptPayload(
     system_overview_summary: {
       sales_today: systemOverview.sales_today,
       products_summary: systemOverview.products_summary,
+      products_added_summary: systemOverview.products_added_summary,
       notifications_summary: systemOverview.notifications_summary,
       low_stock_count: systemOverview.low_stock_alerts.length,
       top_products: systemOverview.top_products.slice(0, 3),
+      recent_products_added: systemOverview.recent_products_added.slice(0, 5),
     },
   };
+}
+
+async function fetchBusinessContext(supabaseAdmin: ReturnType<typeof createClient>) {
+  const globalContextRes = await supabaseAdmin.rpc("obtener_contexto_ia_completo", {
+    p_row_limit: 15,
+    p_include_samples: true,
+  });
+
+  if (!globalContextRes.error && globalContextRes.data) {
+    return globalContextRes.data;
+  }
+
+  if (globalContextRes.error) {
+    console.warn("No se pudo obtener contexto global; usando contexto legado:", globalContextRes.error.message);
+  }
+
+  const legacyContextRes = await supabaseAdmin.rpc("obtener_contexto_ia");
+  if (legacyContextRes.error) {
+    throw legacyContextRes.error;
+  }
+
+  return legacyContextRes.data;
 }
 
 /**
@@ -446,7 +656,7 @@ function containsUrls(mensaje: string): boolean {
 /**
  * Extrae fuentes web del metadata de grounding de Gemini.
  */
-function extractWebSources(candidate: GeminiResponse["candidates"]): WebSource[] {
+function extractWebSources(candidate: GeminiResponse["candidates"] | null | undefined): WebSource[] {
   if (!candidate || candidate.length === 0) return [];
 
   const first = candidate[0];
@@ -488,7 +698,7 @@ function extractWebSources(candidate: GeminiResponse["candidates"]): WebSource[]
 /**
  * Extrae las queries de búsqueda usadas por el modelo.
  */
-function extractSearchQueries(candidate: GeminiResponse["candidates"]): string[] {
+function extractSearchQueries(candidate: GeminiResponse["candidates"] | null | undefined): string[] {
   if (!candidate || candidate.length === 0) return [];
   return candidate[0].groundingMetadata?.webSearchQueries || [];
 }
@@ -752,8 +962,8 @@ Deno.serve(async (req: Request) => {
       conversationId = newConv.id;
     }
 
-    const [{ data: businessContext }, sellerPerformance, systemOverview] = await Promise.all([
-      supabaseAdmin.rpc("obtener_contexto_ia"),
+    const [businessContext, sellerPerformance, systemOverview] = await Promise.all([
+      fetchBusinessContext(supabaseAdmin),
       fetchSellerPerformance(supabaseAdmin),
       fetchSystemOverview(supabaseAdmin),
     ]);
@@ -817,8 +1027,8 @@ Deno.serve(async (req: Request) => {
           .trim() || "No pude generar una respuesta en este momento.";
 
       // Extraer fuentes web y consultas de búsqueda
-      webSources = extractWebSources(geminiData.candidates || null);
-      searchQueries = extractSearchQueries(geminiData.candidates || null);
+      webSources = extractWebSources(geminiData.candidates);
+      searchQueries = extractSearchQueries(geminiData.candidates);
 
       if (webSources.length > 0 || searchQueries.length > 0) {
         console.log("Web search used:", { searchQueries, sourcesCount: webSources.length });

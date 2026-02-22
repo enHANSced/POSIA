@@ -1,6 +1,7 @@
 # POS Retail PWA - Instrucciones para agentes de IA
 
-⚠️ Requisitos críticos: UI 100% en español y moneda HNL (Lempiras, prefijo `L`).
+⚠️ Requisitos críticos: UI 100% en español y moneda HNL (Lempiras, prefijo `L`) formato de 12 horas.
+Estoy usando un estilo neuomórfico para la interfaz.
 Cuando pruebes la app puedes usar estas credenciales de prueba:
 - Admin: `admin@gmail.com` / `admin123`
 - Seller: `seller@gmail.com` / `seller123`

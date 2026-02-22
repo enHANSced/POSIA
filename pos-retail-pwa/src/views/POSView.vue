@@ -25,6 +25,11 @@ const scannerError = ref('')
 const lastScannedCode = ref('')
 const lastScanTime = ref(0)
 
+// Snackbar de producto agregado por escaneo
+const showScanSnackbar = ref(false)
+const scanSnackbarText = ref('')
+let snackbarTimer: ReturnType<typeof setTimeout> | null = null
+
 const BARCODE_FORMATS = [
   Html5QrcodeSupportedFormats.EAN_13,
   Html5QrcodeSupportedFormats.EAN_8,
@@ -89,6 +94,7 @@ onMounted(async () => {
 onUnmounted(() => {
   unsubscribe?.()
   clearScanner()
+  if (snackbarTimer) clearTimeout(snackbarTimer)
 })
 
 watch(showScanner, async (open) => {
@@ -236,6 +242,11 @@ async function handleBarcode(code: string) {
   scannerError.value = ''
   scannerStatus.value = `Producto agregado: ${product.name}`
   carritoStore.addItem(product)
+  // Snackbar visible en cualquier parte de la pantalla
+  if (snackbarTimer) clearTimeout(snackbarTimer)
+  scanSnackbarText.value = product.name
+  showScanSnackbar.value = true
+  snackbarTimer = setTimeout(() => { showScanSnackbar.value = false }, 3000)
 }
 
 async function initScanner() {
@@ -1056,11 +1067,11 @@ function formatHNL(value: number): string {
     </div>
 
     <!-- Bottom sheet del carrito para móvil -->
-    <v-bottom-sheet v-model="showMobileCart" max-height="80vh">
-      <v-card class="rounded-t-xl" style="border-radius: 24px 24px 0 0 !important;">
-        <!-- Handle -->
+    <v-bottom-sheet v-model="showMobileCart" max-height="92dvh">
+      <v-card class="d-flex flex-column" style="border-radius: 20px 20px 0 0 !important; max-height: 92dvh;">
+        <!-- Handle bar -->
         <div class="d-flex justify-center pt-3 pb-1">
-          <div style="width: 40px; height: 4px; background: rgba(0,0,0,0.15); border-radius: 4px;" />
+          <div style="width: 44px; height: 5px; background: rgba(0,0,0,0.18); border-radius: 4px;" />
         </div>
 
         <!-- Header -->
@@ -1069,8 +1080,8 @@ function formatHNL(value: number): string {
             <v-icon color="white" size="18">mdi-cart</v-icon>
           </div>
           <span class="text-subtitle-1 font-weight-bold">Carrito</span>
-          <v-chip color="primary" variant="tonal" size="small" class="ml-2">
-            {{ carritoStore.getItemCount() }} items
+          <v-chip color="primary" variant="tonal" size="small" class="ml-2 font-weight-bold">
+            {{ carritoStore.getItemCount() }} {{ carritoStore.getItemCount() === 1 ? 'item' : 'items' }}
           </v-chip>
           <v-spacer />
           <v-btn icon size="small" variant="text" @click="showMobileCart = false">
@@ -1080,28 +1091,61 @@ function formatHNL(value: number): string {
 
         <v-divider />
 
-        <!-- Lista de items -->
-        <div style="max-height: 40vh; overflow-y: auto;">
-          <v-list density="compact" class="pa-2">
+        <!-- Lista de items (scroll) -->
+        <div style="overflow-y: auto; flex: 1; min-height: 0;">
+          <v-list density="comfortable" class="pa-2">
             <v-list-item
               v-for="(item, index) in carritoStore.items"
               :key="index"
-              class="mb-1 neo-flat pa-2"
+              class="mb-2 neo-flat"
               rounded="lg"
+              :style="{ padding: '10px 12px' }"
             >
-              <v-list-item-title class="text-body-2 font-weight-medium">{{ item.product.name }}</v-list-item-title>
-              <v-list-item-subtitle class="text-caption">{{ formatHNL(item.product.price) }} x {{ item.quantity }}</v-list-item-subtitle>
+              <template #prepend>
+                <div class="mr-3">
+                  <v-avatar size="44" rounded="lg" color="surface-variant">
+                    <v-img v-if="item.product.image_url" :src="item.product.image_url" cover />
+                    <v-icon v-else size="22" color="medium-emphasis">mdi-package-variant</v-icon>
+                  </v-avatar>
+                </div>
+              </template>
+
+              <v-list-item-title class="text-body-2 font-weight-bold mb-0">{{ item.product.name }}</v-list-item-title>
+              <v-list-item-subtitle class="text-caption">
+                {{ formatHNL(item.product.price) }} c/u &bull;
+                <span class="font-weight-bold text-primary">{{ formatHNL(item.product.price * item.quantity) }}</span>
+              </v-list-item-subtitle>
+
               <template #append>
-                <div class="d-flex align-center">
-                  <v-btn icon size="x-small" variant="text" @click.stop="carritoStore.decrementItem(index)">
-                    <v-icon size="16">mdi-minus</v-icon>
+                <div class="d-flex align-center" style="gap: 2px;">
+                  <v-btn
+                    icon
+                    size="small"
+                    variant="tonal"
+                    color="primary"
+                    @click.stop="carritoStore.decrementItem(index)"
+                  >
+                    <v-icon size="18">mdi-minus</v-icon>
                   </v-btn>
-                  <span class="mx-1 text-body-2 font-weight-bold">{{ item.quantity }}</span>
-                  <v-btn icon size="x-small" variant="text" @click.stop="carritoStore.incrementItem(index)">
-                    <v-icon size="16">mdi-plus</v-icon>
+                  <span class="mx-2 text-body-1 font-weight-bold" style="min-width: 24px; text-align: center;">{{ item.quantity }}</span>
+                  <v-btn
+                    icon
+                    size="small"
+                    variant="tonal"
+                    color="primary"
+                    @click.stop="carritoStore.incrementItem(index)"
+                  >
+                    <v-icon size="18">mdi-plus</v-icon>
                   </v-btn>
-                  <v-btn icon size="x-small" color="error" variant="text" @click.stop="carritoStore.removeItem(index)">
-                    <v-icon size="16">mdi-delete-outline</v-icon>
+                  <v-btn
+                    icon
+                    size="small"
+                    color="error"
+                    variant="text"
+                    class="ml-1"
+                    @click.stop="carritoStore.removeItem(index)"
+                  >
+                    <v-icon size="18">mdi-delete-outline</v-icon>
                   </v-btn>
                 </div>
               </template>
@@ -1111,31 +1155,37 @@ function formatHNL(value: number): string {
 
         <v-divider />
 
-        <!-- Totales y acción -->
-        <div class="pa-4">
-          <div class="d-flex justify-space-between text-body-2 mb-1">
-            <span class="text-medium-emphasis">Subtotal:</span>
-            <span>{{ formatHNL(carritoStore.getSubtotal()) }}</span>
+        <!-- Totales y acciones fijos en la parte inferior -->
+        <div class="pa-4 pb-safe" style="flex-shrink: 0;">
+          <div class="neo-flat rounded-xl pa-3 mb-3">
+            <div class="d-flex justify-space-between text-body-2 mb-1">
+              <span class="text-medium-emphasis">Subtotal</span>
+              <span>{{ formatHNL(carritoStore.getSubtotal()) }}</span>
+            </div>
+            <div class="d-flex justify-space-between text-body-2 mb-2">
+              <span class="text-medium-emphasis">ISV (15%)</span>
+              <span>{{ formatHNL(carritoStore.getTax()) }}</span>
+            </div>
+            <v-divider class="my-2" />
+            <div class="d-flex justify-space-between text-h6 font-weight-bold">
+              <span>Total</span>
+              <span class="text-success">{{ formatHNL(carritoStore.getTotal()) }}</span>
+            </div>
           </div>
-          <div class="d-flex justify-space-between text-body-2 mb-2">
-            <span class="text-medium-emphasis">ISV:</span>
-            <span>{{ formatHNL(carritoStore.getTax()) }}</span>
-          </div>
-          <div class="d-flex justify-space-between text-h6 font-weight-bold mb-4">
-            <span>Total:</span>
-            <span class="text-primary">{{ formatHNL(carritoStore.getTotal()) }}</span>
-          </div>
-          <div class="d-flex gap-3">
-            <v-btn color="error" variant="outlined" @click="carritoStore.clearCart(); showMobileCart = false">
-              <v-icon start>mdi-delete-outline</v-icon>
-              Limpiar
+
+          <div class="d-flex" style="gap: 10px;">
+            <v-btn
+              color="error"
+              variant="outlined"
+              size="large"
+              @click="carritoStore.clearCart(); showMobileCart = false"
+            >
+              <v-icon>mdi-delete-outline</v-icon>
             </v-btn>
             <v-btn
               color="success"
               size="large"
-              flex="1"
-              block
-              class="ml-2"
+              style="flex: 1;"
               @click="showMobileCart = false; showCheckout = true"
             >
               <v-icon start>mdi-cash-register</v-icon>
@@ -1145,6 +1195,30 @@ function formatHNL(value: number): string {
         </div>
       </v-card>
     </v-bottom-sheet>
+
+    <!-- Snackbar: producto agregado por escaneo -->
+    <v-snackbar
+      v-model="showScanSnackbar"
+      location="top"
+      color="success"
+      rounded="pill"
+      :timeout="3000"
+      class="scan-snackbar"
+      elevation="4"
+    >
+      <div class="d-flex align-center">
+        <v-icon class="mr-2">mdi-check-circle</v-icon>
+        <div>
+          <div class="text-caption font-weight-medium" style="opacity: 0.85;">Agregado al carrito</div>
+          <div class="text-body-2 font-weight-bold">{{ scanSnackbarText }}</div>
+        </div>
+      </div>
+      <template #actions>
+        <v-btn icon size="small" variant="text" @click="showScanSnackbar = false">
+          <v-icon size="18">mdi-close</v-icon>
+        </v-btn>
+      </template>
+    </v-snackbar>
 
   </v-container>
 </template>
@@ -1551,5 +1625,9 @@ function formatHNL(value: number): string {
 
 .gap-3 {
   gap: 12px;
+}
+
+.pb-safe {
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
 }
 </style>

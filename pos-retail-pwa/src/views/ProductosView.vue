@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
+import { useDisplay } from 'vuetify'
 import { useProductosStore } from '@/stores/productos'
 import { fetchCategories, createCategory, updateCategory, deleteCategory, createProduct, updateProduct, uploadProductImage } from '@/services/database'
 import { analizarProductoImagen, type WebSource } from '@/services/edge-functions'
@@ -7,6 +8,7 @@ import type { Category, Product } from '@/types/supabase'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 
 const productosStore = useProductosStore()
+const { mobile } = useDisplay()
 
 const categories = ref<Category[]>([])
 const searchQuery = ref('')
@@ -992,32 +994,59 @@ function getCategoryName(categoryId: string | null): string {
     </v-dialog>
 
     <!-- Diálogo de cámara -->
-    <v-dialog v-model="showCamera" max-width="600" @update:model-value="!$event && cerrarCamara()">
-      <v-card>
-        <div class="pa-5 d-flex align-center justify-space-between">
-          <div class="d-flex align-center">
-            <div class="neo-circle-sm mr-3">
-              <v-icon color="primary">mdi-camera</v-icon>
-            </div>
-            <h3 class="text-h6 font-weight-bold">Tomar Foto del Producto</h3>
+    <v-dialog
+      v-model="showCamera"
+      :fullscreen="mobile"
+      max-width="440"
+      @update:model-value="!$event && cerrarCamara()"
+    >
+      <v-card :class="mobile ? 'rounded-0' : ''" class="d-flex flex-column" style="height: 100%;">
+        <!-- Toolbar compacto -->
+        <v-toolbar density="compact" flat color="transparent">
+          <div class="neo-circle-sm ml-3 mr-2">
+            <v-icon color="primary" size="18">mdi-camera</v-icon>
           </div>
+          <v-toolbar-title class="text-subtitle-1 font-weight-bold">Tomar Foto del Producto</v-toolbar-title>
+          <v-spacer />
           <v-btn icon variant="text" @click="cerrarCamara">
             <v-icon>mdi-close</v-icon>
           </v-btn>
+        </v-toolbar>
+
+        <!-- Visor de cámara: portrait en móvil, cuadrado en desktop -->
+        <div class="px-4 pb-2 flex-grow-1 d-flex flex-column justify-center">
+          <div
+            class="neo-pressed rounded-xl overflow-hidden w-100"
+            :style="mobile
+              ? 'aspect-ratio: 3/4; max-height: 65dvh;'
+              : 'aspect-ratio: 4/3;'
+            "
+          >
+            <video
+              id="camera-preview"
+              autoplay
+              playsinline
+              muted
+              style="width: 100%; height: 100%; object-fit: cover;"
+            />
+          </div>
+          <p class="text-caption text-medium-emphasis text-center mt-2">
+            Centra el producto dentro del recuadro
+          </p>
         </div>
 
-        <v-card-text class="px-5 py-2">
-          <div class="neo-pressed rounded-lg overflow-hidden mb-3" style="aspect-ratio: 16/9;">
-            <video id="camera-preview" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover;" />
-          </div>
-        </v-card-text>
-
-        <v-card-actions class="pa-5 pt-2">
+        <v-card-actions class="pa-4 pt-0">
           <v-btn variant="text" @click="cerrarCamara">Cancelar</v-btn>
           <v-spacer />
-          <v-btn color="primary" size="large" @click="capturarFoto">
+          <v-btn
+            color="primary"
+            size="large"
+            rounded="pill"
+            class="px-6"
+            @click="capturarFoto"
+          >
             <v-icon start>mdi-camera</v-icon>
-            Capturar
+            Capturar foto
           </v-btn>
         </v-card-actions>
       </v-card>

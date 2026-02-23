@@ -30,8 +30,11 @@ const form = ref({
   min_stock: null as number | null,
   tax_rate: null as number | null,
   description: '',
-  active: true
+  active: true,
+  sell_by: 'unit' as 'unit' | 'weight',
 })
+
+const saveError = ref('')
 
 const formValid = ref(false)
 const saving = ref(false)
@@ -131,8 +134,10 @@ function openNewForm() {
     min_stock: null,
     tax_rate: null,
     description: '',
-    active: true
+    active: true,
+    sell_by: 'unit',
   }
+  saveError.value = ''
   showForm.value = true
 }
 
@@ -143,6 +148,9 @@ function editProduct(product: Product) {
   suggestedCategoryName.value = ''
   priceSources.value = []
   priceResearched.value = false
+  const meta = product.metadata && typeof product.metadata === 'object' && !Array.isArray(product.metadata)
+    ? (product.metadata as Record<string, unknown>)
+    : {}
   form.value = {
     name: product.name,
     barcode: product.barcode || '',
@@ -155,8 +163,10 @@ function editProduct(product: Product) {
     min_stock: product.min_stock ?? null,
     tax_rate: product.tax_rate ?? null,
     description: product.description || '',
-    active: product.active !== false
+    active: product.active !== false,
+    sell_by: (meta.sell_by === 'weight' ? 'weight' : 'unit') as 'unit' | 'weight',
   }
+  saveError.value = ''
   showForm.value = true
 }
 
@@ -283,6 +293,11 @@ async function autocompletarConIA() {
     form.value.tax_rate = typeof s.tax_rate === 'number' && s.tax_rate >= 0 ? s.tax_rate : form.value.tax_rate
     form.value.min_stock = typeof s.min_stock === 'number' && s.min_stock > 0 ? s.min_stock : form.value.min_stock
 
+    // Tipo de venta sugerido por IA
+    if (s.sell_by === 'unit' || s.sell_by === 'weight') {
+      form.value.sell_by = s.sell_by
+    }
+
     // Guardar fuentes de precios investigadas
     priceSources.value = resultado.price_sources || []
     priceResearched.value = resultado.price_researched || false
@@ -399,8 +414,17 @@ async function saveCategoryForm() {
   }
 }
 
+function categoryProductCount(categoryId: string): number {
+  return productosStore.products.filter((p: Product) => p.category_id === categoryId).length
+}
+
 async function removeCategory(id: string) {
   categoryError.value = ''
+  const count = categoryProductCount(id)
+  if (count > 0) {
+    categoryError.value = `No se puede eliminar: hay ${count} producto${count > 1 ? 's' : ''} asociado${count > 1 ? 's' : ''} a esta categoría.`
+    return
+  }
   try {
     await deleteCategory(id)
     await loadCategories()
@@ -409,7 +433,7 @@ async function removeCategory(id: string) {
     }
   } catch (err) {
     console.error('Error eliminando categoría:', err)
-    categoryError.value = 'No se pudo eliminar. Puede tener productos asociados.'
+    categoryError.value = 'No se pudo eliminar la categoría.'
   }
 }
 
@@ -434,8 +458,12 @@ async function crearCategoriaSugerida() {
 }
 
 async function saveProduct() {
-  if (!formValid.value) return
+  if (!formValid.value) {
+    saveError.value = 'Completa los campos requeridos (nombre del producto).'
+    return
+  }
   saving.value = true
+  saveError.value = ''
 
   try {
     if (selectedImageFile.value) {
@@ -443,14 +471,20 @@ async function saveProduct() {
       form.value.image_url = uploadedUrl
     }
 
+    // Extraer sell_by para metadata
+    const { sell_by, ...formFields } = form.value
+
     // Preparar datos con valores por defecto para campos vacíos
     const productData = {
-      ...form.value,
-      price: form.value.price ?? 0,
-      cost: form.value.cost ?? 0,
-      stock: form.value.stock ?? 0,
-      min_stock: form.value.min_stock ?? 5,
-      tax_rate: form.value.tax_rate ?? 15,
+      ...formFields,
+      sku: formFields.sku || null,
+      barcode: formFields.barcode || null,
+      price: formFields.price ?? 0,
+      cost: formFields.cost ?? 0,
+      stock: formFields.stock ?? 0,
+      min_stock: formFields.min_stock ?? 5,
+      tax_rate: formFields.tax_rate ?? 15,
+      metadata: { sell_by },
     }
 
     if (editingProduct.value) {
@@ -465,9 +499,22 @@ async function saveProduct() {
     showForm.value = false
   } catch (err) {
     console.error('Error guardando producto:', err)
+    saveError.value = err instanceof Error ? err.message : 'Error al guardar el producto. Verifica los datos e intenta de nuevo.'
   } finally {
     saving.value = false
   }
+}
+
+/** Determina si un producto se vende por peso */
+function isSellByWeight(product: Product): boolean {
+  const meta = product.metadata && typeof product.metadata === 'object' && !Array.isArray(product.metadata)
+    ? (product.metadata as Record<string, unknown>)
+    : {}
+  return meta.sell_by === 'weight'
+}
+
+function getSellByLabel(product: Product): string {
+  return isSellByWeight(product) ? 'Peso (lb/kg)' : 'Unidad'
 }
 
 function getCategoryName(categoryId: string | null): string {
@@ -506,11 +553,13 @@ function getCategoryName(categoryId: string | null): string {
         <!-- Tabla de productos -->
         <v-data-table
           :headers="[
+            { title: '', key: 'image', sortable: false, width: '56px' },
             { title: 'Producto', key: 'name' },
             { title: 'SKU', key: 'sku' },
             { title: 'Código', key: 'barcode' },
             { title: 'Categoría', key: 'category_id' },
             { title: 'Precio', key: 'price', align: 'end' },
+            { title: 'Venta', key: 'sell_by', align: 'center' },
             { title: 'Stock', key: 'stock', align: 'center' },
             { title: 'Estado', key: 'active', align: 'center' },
             { title: 'Acciones', key: 'actions', align: 'center', sortable: false }
@@ -518,7 +567,21 @@ function getCategoryName(categoryId: string | null): string {
           :items="productosFiltrados"
           :loading="productosStore.loading"
           item-value="id"
+          hover
         >
+          <template #item.image="{ item }">
+            <v-avatar size="40" rounded="lg" class="my-1">
+              <v-img v-if="item.image_url" :src="item.image_url" cover />
+              <div v-else class="w-100 h-100 d-flex align-center justify-center bg-grey-lighten-3">
+                <v-icon size="20" color="grey">mdi-package-variant</v-icon>
+              </div>
+            </v-avatar>
+          </template>
+
+          <template #item.name="{ item }">
+            <span class="text-body-2 font-weight-medium">{{ item.name }}</span>
+          </template>
+
           <template #item.price="{ item }">
             <span class="font-weight-bold text-primary">L {{ item.price.toFixed(2) }}</span>
           </template>
@@ -526,6 +589,17 @@ function getCategoryName(categoryId: string | null): string {
           <template #item.category_id="{ item }">
             <v-chip variant="tonal" size="small">
               {{ getCategoryName(item.category_id) }}
+            </v-chip>
+          </template>
+
+          <template #item.sell_by="{ item }">
+            <v-chip
+              :color="isSellByWeight(item) ? 'orange' : 'blue-grey'"
+              size="small"
+              variant="tonal"
+            >
+              <v-icon start size="14">{{ isSellByWeight(item) ? 'mdi-scale' : 'mdi-numeric-1-box' }}</v-icon>
+              {{ getSellByLabel(item) }}
             </v-chip>
           </template>
 
@@ -758,6 +832,8 @@ function getCategoryName(categoryId: string | null): string {
                           variant="outlined"
                           density="comfortable"
                           prepend-inner-icon="mdi-barcode"
+                          :hint="!form.barcode && !editingProduct ? 'Se generará un código interno automáticamente' : ''"
+                          persistent-hint
                         >
                           <template #append-inner>
                             <v-fade-transition>
@@ -838,6 +914,25 @@ function getCategoryName(categoryId: string | null): string {
                           class="mt-1 ml-2"
                         ></v-switch>
                       </v-col>
+
+                      <v-col cols="12" sm="6">
+                        <v-select
+                          v-model="form.sell_by"
+                          :items="[
+                            { title: 'Por Unidad', value: 'unit' },
+                            { title: 'Por Peso / Granel (lb, kg)', value: 'weight' },
+                          ]"
+                          label="Tipo de Venta"
+                          variant="outlined"
+                          density="comfortable"
+                          prepend-inner-icon="mdi-scale-balance"
+                          hide-details
+                        />
+                        <div v-if="form.sell_by === 'weight'" class="text-caption text-warning mt-1 ml-1">
+                          <v-icon size="12" color="warning" class="mr-1">mdi-information</v-icon>
+                          Se permitirán cantidades decimales (ej. 0.5 lb)
+                        </div>
+                      </v-col>
                     </v-row>
                   </div>
 
@@ -891,22 +986,28 @@ function getCategoryName(categoryId: string | null): string {
                       <v-col cols="6" sm="6">
                         <v-text-field
                           v-model.number="form.stock"
-                          label="Stock Actual"
+                          :label="form.sell_by === 'weight' ? 'Stock Actual (lb)' : 'Stock Actual'"
                           type="number"
+                          :step="form.sell_by === 'weight' ? 0.25 : 1"
+                          :min="0"
                           prepend-inner-icon="mdi-package-variant"
                           variant="outlined"
                           density="comfortable"
+                          :suffix="form.sell_by === 'weight' ? 'lb' : 'uds'"
                         />
                       </v-col>
 
                       <v-col cols="6" sm="6">
                         <v-text-field
                           v-model.number="form.min_stock"
-                          label="Stock Mínimo"
+                          :label="form.sell_by === 'weight' ? 'Stock Mínimo (lb)' : 'Stock Mínimo'"
                           type="number"
+                          :step="form.sell_by === 'weight' ? 0.25 : 1"
+                          :min="0"
                           prepend-inner-icon="mdi-alert-circle-outline"
                           variant="outlined"
                           density="comfortable"
+                          :suffix="form.sell_by === 'weight' ? 'lb' : 'uds'"
                         />
                       </v-col>
                     </v-row>
@@ -925,6 +1026,19 @@ function getCategoryName(categoryId: string | null): string {
               </v-col>
             </v-row>
           </v-form>
+
+          <!-- Error de guardado -->
+          <v-alert
+            v-if="saveError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            closable
+            class="mx-6 mt-2"
+            @click:close="saveError = ''"
+          >
+            {{ saveError }}
+          </v-alert>
         </v-card-text>
 
         <v-card-actions class="px-6 py-4">
@@ -1144,11 +1258,14 @@ function getCategoryName(categoryId: string | null): string {
               </template>
               <v-list-item-title class="font-weight-medium">{{ cat.name }}</v-list-item-title>
               <v-list-item-subtitle v-if="cat.description">{{ cat.description }}</v-list-item-subtitle>
+              <v-list-item-subtitle v-if="categoryProductCount(cat.id) > 0" class="text-caption">
+                {{ categoryProductCount(cat.id) }} producto{{ categoryProductCount(cat.id) > 1 ? 's' : '' }}
+              </v-list-item-subtitle>
               <template #append>
                 <v-btn icon size="x-small" variant="text" @click="openCategoryForm(cat)">
                   <v-icon size="16">mdi-pencil</v-icon>
                 </v-btn>
-                <v-btn icon size="x-small" variant="text" color="error" @click="removeCategory(cat.id)">
+                <v-btn icon size="x-small" variant="text" color="error" @click="removeCategory(cat.id)" :disabled="categoryProductCount(cat.id) > 0" :title="categoryProductCount(cat.id) > 0 ? 'Tiene productos asociados' : 'Eliminar categoría'">
                   <v-icon size="16">mdi-delete</v-icon>
                 </v-btn>
               </template>

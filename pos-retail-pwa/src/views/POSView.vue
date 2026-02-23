@@ -2,13 +2,14 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useDisplay } from 'vuetify'
 import { useProductosStore } from '@/stores/productos'
-import { useCarritoStore } from '@/stores/carrito'
+import { useCarritoStore, productSellsByWeight } from '@/stores/carrito'
 import { useAuthStore } from '@/stores/auth'
 import { procesarVenta } from '@/services/edge-functions'
 import type { ProcesarVentaResponse } from '@/services/edge-functions'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 import FacturaRecibo from '@/components/pos/FacturaRecibo.vue'
 import type { FacturaData } from '@/components/pos/FacturaRecibo.vue'
+import { playSuccessBeep, playErrorBeep } from '@/composables/useScanSound'
 
 const productosStore = useProductosStore()
 const carritoStore = useCarritoStore()
@@ -135,7 +136,8 @@ function startEditQty(index: number, currentQty: number) {
 }
 
 function confirmEditQty(index: number) {
-  const qty = Math.max(1, Math.floor(editingQtyValue.value || 1))
+  const val = editingQtyValue.value || 0.25
+  const qty = Math.max(0.01, Math.round(val * 1000) / 1000)
   carritoStore.updateQuantity(index, qty)
   editingQtyIndex.value = null
 }
@@ -213,11 +215,32 @@ function isLowStock(producto: any): boolean {
   return stock > 0 && stock <= min
 }
 
+// Diálogo para ingresar peso/cantidad de productos a granel
+const showWeightDialog = ref(false)
+const weightDialogProduct = ref<any>(null)
+const weightDialogValue = ref<number>(1)
+
 function agregarAlCarrito(producto: any) {
+  if (productSellsByWeight(producto)) {
+    // Producto por peso: abrir diálogo para ingresar cantidad
+    weightDialogProduct.value = producto
+    weightDialogValue.value = 1
+    showWeightDialog.value = true
+    return
+  }
   carritoStore.addItem(producto)
   // Feedback visual: animar la tarjeta por 600ms
   lastAddedId.value = producto.id
   setTimeout(() => { lastAddedId.value = null }, 600)
+}
+
+function confirmWeightAdd() {
+  if (!weightDialogProduct.value || weightDialogValue.value <= 0) return
+  carritoStore.addItem(weightDialogProduct.value, weightDialogValue.value)
+  lastAddedId.value = weightDialogProduct.value.id
+  setTimeout(() => { lastAddedId.value = null }, 600)
+  showWeightDialog.value = false
+  weightDialogProduct.value = null
 }
 
 async function handleBarcode(code: string) {
@@ -232,13 +255,16 @@ async function handleBarcode(code: string) {
 
   const product = await productosStore.getByBarcode(barcode)
   if (!product) {
+    playErrorBeep()
     scannerError.value = 'No se encontró producto para ese código.'
     return
   }
   if ((product.stock || 0) <= 0) {
+    playErrorBeep()
     scannerError.value = 'El producto está sin stock.'
     return
   }
+  playSuccessBeep()
   scannerError.value = ''
   scannerStatus.value = `Producto agregado: ${product.name}`
   carritoStore.addItem(product)
@@ -278,6 +304,61 @@ function buscarManual() {
   handleBarcode(scannerManualCode.value)
 }
 
+// Quick-add: navegación con flechas y confirmar con Enter
+const quickAddQty = ref(1)
+const highlightedIndex = ref(0)
+
+watch(searchQuery, () => {
+  quickAddQty.value = 1
+  highlightedIndex.value = 0
+})
+
+function quickAddStep(producto: any): number {
+  return productSellsByWeight(producto) ? 0.25 : 1
+}
+
+function navegarResultado(delta: number, event: KeyboardEvent) {
+  if (!searchQuery.value?.trim()) return
+  const resultados = productosFiltrados.value
+  if (resultados.length === 0) return
+  event.preventDefault()
+  quickAddQty.value = 1
+  const newIdx = highlightedIndex.value + delta
+  highlightedIndex.value = Math.max(0, Math.min(newIdx, resultados.length - 1))
+}
+
+function ajustarQuickQty(delta: number, event: KeyboardEvent) {
+  if (!searchQuery.value?.trim()) return
+  const resultados = productosFiltrados.value
+  if (resultados.length === 0) return
+  const producto = resultados[highlightedIndex.value]
+  if (!producto || (producto.stock ?? 0) <= 0) return
+  event.preventDefault()
+  const step = quickAddStep(producto)
+  const newQty = Math.round((quickAddQty.value + delta * step) * 100) / 100
+  const maxStock = producto.stock ?? 0
+  quickAddQty.value = Math.max(step, Math.min(newQty, maxStock))
+}
+
+function seleccionarPrimerCoincidencia() {
+  if (!searchQuery.value?.trim()) return
+  const resultados = productosFiltrados.value
+  if (resultados.length === 0) return
+  const producto = resultados[highlightedIndex.value]
+  if (!producto || (producto.stock ?? 0) <= 0) return
+  if (productSellsByWeight(producto)) {
+    weightDialogProduct.value = producto
+    weightDialogValue.value = quickAddQty.value
+    showWeightDialog.value = true
+  } else {
+    carritoStore.addItem(producto, quickAddQty.value)
+    lastAddedId.value = producto.id
+    setTimeout(() => { lastAddedId.value = null }, 600)
+  }
+  searchQuery.value = ''
+  quickAddQty.value = 1
+}
+
 // === CHECKOUT FLOW ===
 function selectPaymentMethod(method: 'efectivo' | 'tarjeta') {
   carritoStore.setPaymentMethod(method)
@@ -315,6 +396,14 @@ async function finalizarVenta() {
   checkoutStep.value = 'processing'
 
   try {
+    // Guardar datos extra de la transacción en notes (JSON) para reconstruir factura
+    const extraData = JSON.stringify({
+      customer_name: customerName.value || null,
+      customer_rtn: customerRtn.value || null,
+      monto_recibido: carritoStore.paymentMethod === 'efectivo' ? (montoRecibido.value || null) : null,
+      cambio: carritoStore.paymentMethod === 'efectivo' ? cambio.value : null,
+    })
+
     const response = await procesarVenta({
       items: carritoStore.getSaleItems(),
       total: carritoStore.getTotal(),
@@ -324,6 +413,7 @@ async function finalizarVenta() {
       payment_method: carritoStore.paymentMethod,
       customer_name: customerName.value || undefined,
       customer_rtn: customerRtn.value || undefined,
+      notes: extraData,
     })
 
     lastSaleResponse.value = response
@@ -411,6 +501,11 @@ function formatHNL(value: number): string {
               prepend-inner-icon="mdi-magnify"
               clearable
               class="mb-3"
+              @keydown.enter="seleccionarPrimerCoincidencia"
+              @keydown.up="(e: KeyboardEvent) => ajustarQuickQty(1, e)"
+              @keydown.down="(e: KeyboardEvent) => ajustarQuickQty(-1, e)"
+              @keydown.left="(e: KeyboardEvent) => navegarResultado(-1, e)"
+              @keydown.right="(e: KeyboardEvent) => navegarResultado(1, e)"
             />
 
             <!-- Filtro por categoría -->
@@ -449,7 +544,8 @@ function formatHNL(value: number): string {
                   :class="{
                     'producto-card-low-stock': isLowStock(producto),
                     'producto-card-added': lastAddedId === producto.id,
-                    'producto-card-sin-stock': (producto.stock || 0) <= 0
+                    'producto-card-sin-stock': (producto.stock || 0) <= 0,
+                    'producto-card-enter-highlight': searchQuery?.trim() && productosFiltrados.indexOf(producto) === highlightedIndex && (producto.stock || 0) > 0
                   }"
                   :disabled="(producto.stock || 0) <= 0"
                   role="button"
@@ -487,6 +583,26 @@ function formatHNL(value: number): string {
                     <div class="producto-add-overlay">
                       <v-icon color="white" size="28">mdi-cart-plus</v-icon>
                     </div>
+                    <!-- Enter badge on first search result -->
+                    <div
+                      v-if="searchQuery?.trim() && productosFiltrados.indexOf(producto) === highlightedIndex && (producto.stock || 0) > 0"
+                      class="enter-badge"
+                    >
+                      <span v-if="quickAddQty > 1" class="enter-badge-qty">{{ productSellsByWeight(producto) ? quickAddQty.toFixed(2) : quickAddQty }}</span>
+                      <v-icon size="14" color="white">mdi-keyboard-return</v-icon>
+                    </div>
+                    <!-- Quick navigation arrows hint -->
+                    <div
+                      v-if="searchQuery?.trim() && productosFiltrados.indexOf(producto) === highlightedIndex && (producto.stock || 0) > 0"
+                      class="arrows-hint"
+                    >
+                      <v-icon size="11" color="white">mdi-arrow-left</v-icon>
+                      <div class="arrows-hint-vertical">
+                        <v-icon size="11" color="white">mdi-arrow-up</v-icon>
+                        <v-icon size="11" color="white">mdi-arrow-down</v-icon>
+                      </div>
+                      <v-icon size="11" color="white">mdi-arrow-right</v-icon>
+                    </div>
                   </div>
 
                   <v-card-text class="pa-3 pt-2">
@@ -501,7 +617,7 @@ function formatHNL(value: number): string {
                         class="text-caption font-weight-medium"
                         :class="(producto.stock || 0) <= 0 ? 'text-error' : isLowStock(producto) ? 'text-warning' : 'text-medium-emphasis'"
                       >
-                        {{ producto.stock ?? 0 }} uds
+                        {{ producto.stock ?? 0 }} {{ productSellsByWeight(producto) ? 'lb' : 'uds' }}
                       </span>
                     </div>
                     <!-- Stock bar -->
@@ -586,7 +702,8 @@ function formatHNL(value: number): string {
                             type="number"
                             class="qty-input"
                             v-model.number="editingQtyValue"
-                            min="1"
+                            :min="productSellsByWeight(item.product) ? 0.01 : 1"
+                            :step="productSellsByWeight(item.product) ? 0.25 : 1"
                             :max="item.product.stock ?? 999"
                             @keyup.enter="confirmEditQty(index)"
                             @keyup.escape="cancelEditQty()"
@@ -600,7 +717,7 @@ function formatHNL(value: number): string {
                             class="qty-value text-body-1 font-weight-bold"
                             @click.stop="startEditQty(index, item.quantity)"
                             title="Clic para editar cantidad"
-                          >{{ item.quantity }}</span>
+                          >{{ productSellsByWeight(item.product) ? item.quantity.toFixed(2) : item.quantity }}</span>
                         </template>
                         <v-btn icon size="small" variant="text" @click.stop="carritoStore.incrementItem(index)">
                           <v-icon size="18">mdi-plus</v-icon>
@@ -1046,6 +1163,51 @@ function formatHNL(value: number): string {
       </v-card>
     </v-dialog>
 
+    <!-- === Diálogo para ingresar peso/cantidad a granel === -->
+    <v-dialog v-model="showWeightDialog" max-width="400" persistent>
+      <v-card class="neo-elevated rounded-xl">
+        <v-card-title class="d-flex align-center pa-5 pb-3">
+          <v-icon color="primary" class="mr-2">mdi-scale</v-icon>
+          Cantidad a Granel
+        </v-card-title>
+
+        <v-card-text class="px-5 pb-4">
+          <p class="text-body-2 text-medium-emphasis mb-3">
+            Ingrese la cantidad en libras para
+            <strong>{{ weightDialogProduct?.name }}</strong>
+          </p>
+
+          <v-text-field
+            v-model.number="weightDialogValue"
+            label="Cantidad (lb)"
+            type="number"
+            :min="0.25"
+            :step="0.25"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-weight-pound"
+            hint="Mínimo 0.25 lb — use incrementos de 0.25"
+            persistent-hint
+            autofocus
+          />
+        </v-card-text>
+
+        <v-card-actions class="pa-5 pt-0">
+          <v-btn variant="text" @click="showWeightDialog = false">Cancelar</v-btn>
+          <v-spacer />
+          <v-btn
+            color="primary"
+            variant="elevated"
+            :disabled="!weightDialogValue || weightDialogValue < 0.25"
+            @click="confirmWeightAdd"
+          >
+            <v-icon start>mdi-cart-plus</v-icon>
+            Agregar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- === FAB móvil: muestra el carrito como bottom sheet === -->
     <div v-if="mobile && carritoStore.items.length > 0" class="mobile-cart-fab d-flex d-md-none">
       <v-btn
@@ -1127,7 +1289,7 @@ function formatHNL(value: number): string {
                   >
                     <v-icon size="18">mdi-minus</v-icon>
                   </v-btn>
-                  <span class="mx-2 text-body-1 font-weight-bold" style="min-width: 24px; text-align: center;">{{ item.quantity }}</span>
+                  <span class="mx-2 text-body-1 font-weight-bold" style="min-width: 24px; text-align: center;">{{ productSellsByWeight(item.product) ? item.quantity.toFixed(2) : item.quantity }}</span>
                   <v-btn
                     icon
                     size="small"
@@ -1251,6 +1413,66 @@ function formatHNL(value: number): string {
 .producto-card-sin-stock {
   opacity: 0.55;
   filter: grayscale(0.4);
+}
+
+/* Enter highlight on first search result */
+.producto-card-enter-highlight {
+  border: 2px solid rgb(var(--v-theme-primary)) !important;
+  box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.18), var(--neo-raised) !important;
+  transform: translateY(-2px);
+}
+
+.enter-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgb(var(--v-theme-primary));
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  z-index: 2;
+  animation: enter-badge-pulse 1.5s ease-in-out infinite;
+}
+
+.enter-badge-qty {
+  background: rgba(255, 255, 255, 0.25);
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.arrows-hint {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+  padding: 2px 4px;
+  z-index: 2;
+  backdrop-filter: blur(4px);
+  opacity: 0.5;
+}
+
+.arrows-hint-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+@keyframes enter-badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 /* Image container & overlays */
@@ -1435,7 +1657,6 @@ function formatHNL(value: number): string {
   font-weight: 700;
   outline: none;
   color: inherit;
-  -moz-appearance: textfield;
 }
 
 .qty-input::-webkit-outer-spin-button,

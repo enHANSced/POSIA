@@ -2,6 +2,14 @@ import { defineStore } from 'pinia'
 import { shallowRef, computed, triggerRef } from 'vue'
 import type { Product, CartItem, SaleItem } from '@/types/supabase'
 
+/** Determina si un producto se vende por peso (granel) */
+export function productSellsByWeight(product: Product): boolean {
+  const meta = product.metadata && typeof product.metadata === 'object' && !Array.isArray(product.metadata)
+    ? (product.metadata as Record<string, unknown>)
+    : {}
+  return meta.sell_by === 'weight'
+}
+
 export const useCarritoStore = defineStore('carrito', () => {
   // Estado - usar shallowRef para evitar recursión de tipos
   const items = shallowRef<CartItem[]>([])
@@ -66,9 +74,12 @@ export const useCarritoStore = defineStore('carrito', () => {
     
     const item = items.value[index]
     if (!item) return
+
+    const isByWeight = productSellsByWeight(item.product)
+    const step = isByWeight ? 0.25 : 1
     
     if ((item.product.stock ?? 0) > item.quantity) {
-      item.quantity++
+      item.quantity = Math.round((item.quantity + step) * 1000) / 1000
       item.subtotal = item.product.price * item.quantity
       item.tax = item.subtotal * ((item.product.tax_rate ?? 0) / 100)
       triggerRef(items)
@@ -80,9 +91,13 @@ export const useCarritoStore = defineStore('carrito', () => {
     
     const item = items.value[index]
     if (!item) return
+
+    const isByWeight = productSellsByWeight(item.product)
+    const step = isByWeight ? 0.25 : 1
+    const minQty = isByWeight ? 0.25 : 1
     
-    if (item.quantity > 1) {
-      item.quantity--
+    if (item.quantity > minQty) {
+      item.quantity = Math.round((item.quantity - step) * 1000) / 1000
       item.subtotal = item.product.price * item.quantity
       item.tax = item.subtotal * ((item.product.tax_rate ?? 0) / 100)
       triggerRef(items)
@@ -98,7 +113,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     if (!item) return
     
     const maxQuantity = item.product.stock ?? 0
-    item.quantity = Math.min(quantity, maxQuantity)
+    item.quantity = Math.min(Math.round(quantity * 1000) / 1000, maxQuantity)
     item.subtotal = item.product.price * item.quantity
     item.tax = item.subtotal * ((item.product.tax_rate ?? 0) / 100)
     triggerRef(items)

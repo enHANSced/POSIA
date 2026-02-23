@@ -14,6 +14,7 @@ type Suggestion = {
   name?: string;
   description?: string;
   category_name?: string;
+  sell_by?: "unit" | "weight";
   sku?: string;
   barcode?: string;
   price?: number;
@@ -218,8 +219,8 @@ Deno.serve(async (req: Request) => {
     }
 
     const categoriesSection = categoriesFromClient.length > 0
-      ? `\nCategorías disponibles en el sistema: [${categoriesFromClient.join(", ")}]\nIMPORTANTE: Para "category_name" DEBES usar una de las categorías listadas arriba. Si ninguna aplica, usa la más cercana de la lista. Solo si realmente ninguna categoría de la lista es apropiada, puedes sugerir una nueva.`
-      : `\nPara "category_name" sugiere una categoría en español apropiada para el producto (ej: Bebidas, Snacks, Limpieza, Lácteos, Abarrotes).`;
+      ? `\nCategorías disponibles en el sistema: [${categoriesFromClient.join(", ")}]\nPara "category_name": revisa las categorías listadas arriba. Usa una de ellas SOLO si el producto realmente pertenece a esa categoría. NO fuerces un producto en una categoría incorrecta. Por ejemplo, frutas y verduras NO son "Abarrotes", carnes NO son "Lácteos". Si NINGUNA categoría de la lista es genuinamente apropiada para este producto, sugiere el nombre de una NUEVA categoría en español que sea adecuada (ej: "Frutas y Verduras", "Carnes y Embutidos", "Panadería", "Congelados", etc.). Preferir crear una categoría correcta antes que forzar una incorrecta.`
+      : `\nPara "category_name" sugiere una categoría en español apropiada para el producto (ej: Bebidas, Snacks, Limpieza, Lácteos, Abarrotes, Frutas y Verduras, Carnes).`;
 
     const prompt = `Eres un experto en productos retail del mercado hondureño. Analiza la imagen del producto y responde SOLO con un JSON válido.
 Si no puedes inferir un campo, déjalo vacío o no lo incluyas.
@@ -228,6 +229,7 @@ Usa este formato exacto:
   "name": "nombre del producto en español",
   "description": "descripción breve en español del producto",
   "category_name": "categoría del producto",
+  "sell_by": "unit",
   "sku": "código SKU si es visible",
   "barcode": "código de barras si es visible",
   "price": 0,
@@ -249,6 +251,7 @@ Reglas importantes:
   Considera que es una tienda retail pequeña/mediana en Honduras.
 - "name": nombre comercial del producto en español.
 - "description": descripción breve y útil en español.
+- "sell_by": tipo de venta del producto. Usa "unit" para productos que se venden por unidad (la mayoría: latas, botellas, paquetes, cajas). Usa "weight" para productos que se venden a granel o por peso (frutas, verduras, carnes, granos sueltos, embutidos por libra, quesos). Si el producto se vende típicamente por libra/kilo en un supermercado hondureño, usa "weight".
 ${categoriesSection}
 - No escribas texto fuera del JSON, SOLO responde con el JSON.
 ${barcode ? `Código de barras proporcionado por el usuario: ${barcode}` : ""}

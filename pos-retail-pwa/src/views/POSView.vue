@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useDisplay } from 'vuetify'
 import { useProductosStore } from '@/stores/productos'
-import { useCarritoStore } from '@/stores/carrito'
+import { useCarritoStore, productSellsByWeight } from '@/stores/carrito'
 import { useAuthStore } from '@/stores/auth'
 import { procesarVenta } from '@/services/edge-functions'
 import type { ProcesarVentaResponse } from '@/services/edge-functions'
@@ -135,7 +135,8 @@ function startEditQty(index: number, currentQty: number) {
 }
 
 function confirmEditQty(index: number) {
-  const qty = Math.max(1, Math.floor(editingQtyValue.value || 1))
+  const val = editingQtyValue.value || 0.25
+  const qty = Math.max(0.01, Math.round(val * 1000) / 1000)
   carritoStore.updateQuantity(index, qty)
   editingQtyIndex.value = null
 }
@@ -213,11 +214,32 @@ function isLowStock(producto: any): boolean {
   return stock > 0 && stock <= min
 }
 
+// Diálogo para ingresar peso/cantidad de productos a granel
+const showWeightDialog = ref(false)
+const weightDialogProduct = ref<any>(null)
+const weightDialogValue = ref<number>(1)
+
 function agregarAlCarrito(producto: any) {
+  if (productSellsByWeight(producto)) {
+    // Producto por peso: abrir diálogo para ingresar cantidad
+    weightDialogProduct.value = producto
+    weightDialogValue.value = 1
+    showWeightDialog.value = true
+    return
+  }
   carritoStore.addItem(producto)
   // Feedback visual: animar la tarjeta por 600ms
   lastAddedId.value = producto.id
   setTimeout(() => { lastAddedId.value = null }, 600)
+}
+
+function confirmWeightAdd() {
+  if (!weightDialogProduct.value || weightDialogValue.value <= 0) return
+  carritoStore.addItem(weightDialogProduct.value, weightDialogValue.value)
+  lastAddedId.value = weightDialogProduct.value.id
+  setTimeout(() => { lastAddedId.value = null }, 600)
+  showWeightDialog.value = false
+  weightDialogProduct.value = null
 }
 
 async function handleBarcode(code: string) {
@@ -510,7 +532,7 @@ function formatHNL(value: number): string {
                         class="text-caption font-weight-medium"
                         :class="(producto.stock || 0) <= 0 ? 'text-error' : isLowStock(producto) ? 'text-warning' : 'text-medium-emphasis'"
                       >
-                        {{ producto.stock ?? 0 }} uds
+                        {{ producto.stock ?? 0 }} {{ productSellsByWeight(producto) ? 'lb' : 'uds' }}
                       </span>
                     </div>
                     <!-- Stock bar -->
@@ -595,7 +617,8 @@ function formatHNL(value: number): string {
                             type="number"
                             class="qty-input"
                             v-model.number="editingQtyValue"
-                            min="1"
+                            :min="productSellsByWeight(item.product) ? 0.01 : 1"
+                            :step="productSellsByWeight(item.product) ? 0.25 : 1"
                             :max="item.product.stock ?? 999"
                             @keyup.enter="confirmEditQty(index)"
                             @keyup.escape="cancelEditQty()"
@@ -609,7 +632,7 @@ function formatHNL(value: number): string {
                             class="qty-value text-body-1 font-weight-bold"
                             @click.stop="startEditQty(index, item.quantity)"
                             title="Clic para editar cantidad"
-                          >{{ item.quantity }}</span>
+                          >{{ productSellsByWeight(item.product) ? item.quantity.toFixed(2) : item.quantity }}</span>
                         </template>
                         <v-btn icon size="small" variant="text" @click.stop="carritoStore.incrementItem(index)">
                           <v-icon size="18">mdi-plus</v-icon>
@@ -1055,6 +1078,51 @@ function formatHNL(value: number): string {
       </v-card>
     </v-dialog>
 
+    <!-- === Diálogo para ingresar peso/cantidad a granel === -->
+    <v-dialog v-model="showWeightDialog" max-width="400" persistent>
+      <v-card class="neo-elevated rounded-xl">
+        <v-card-title class="d-flex align-center pa-5 pb-3">
+          <v-icon color="primary" class="mr-2">mdi-scale</v-icon>
+          Cantidad a Granel
+        </v-card-title>
+
+        <v-card-text class="px-5 pb-4">
+          <p class="text-body-2 text-medium-emphasis mb-3">
+            Ingrese la cantidad en libras para
+            <strong>{{ weightDialogProduct?.name }}</strong>
+          </p>
+
+          <v-text-field
+            v-model.number="weightDialogValue"
+            label="Cantidad (lb)"
+            type="number"
+            :min="0.25"
+            :step="0.25"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-weight-pound"
+            hint="Mínimo 0.25 lb — use incrementos de 0.25"
+            persistent-hint
+            autofocus
+          />
+        </v-card-text>
+
+        <v-card-actions class="pa-5 pt-0">
+          <v-btn variant="text" @click="showWeightDialog = false">Cancelar</v-btn>
+          <v-spacer />
+          <v-btn
+            color="primary"
+            variant="elevated"
+            :disabled="!weightDialogValue || weightDialogValue < 0.25"
+            @click="confirmWeightAdd"
+          >
+            <v-icon start>mdi-cart-plus</v-icon>
+            Agregar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- === FAB móvil: muestra el carrito como bottom sheet === -->
     <div v-if="mobile && carritoStore.items.length > 0" class="mobile-cart-fab d-flex d-md-none">
       <v-btn
@@ -1136,7 +1204,7 @@ function formatHNL(value: number): string {
                   >
                     <v-icon size="18">mdi-minus</v-icon>
                   </v-btn>
-                  <span class="mx-2 text-body-1 font-weight-bold" style="min-width: 24px; text-align: center;">{{ item.quantity }}</span>
+                  <span class="mx-2 text-body-1 font-weight-bold" style="min-width: 24px; text-align: center;">{{ productSellsByWeight(item.product) ? item.quantity.toFixed(2) : item.quantity }}</span>
                   <v-btn
                     icon
                     size="small"

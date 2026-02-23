@@ -40,10 +40,10 @@ async function loadSales() {
 }
 
 // Filtrar ventas por búsqueda
-const filteredSales = computed(() => {
+const filteredSales = computed((): SaleHistoryItem[] => {
   if (!searchQuery.value.trim()) return sales.value
   const q = searchQuery.value.toLowerCase()
-  return sales.value.filter(s =>
+  return sales.value.filter((s: SaleHistoryItem) =>
     s.sale_number.toLowerCase().includes(q) ||
     (s.seller_name && s.seller_name.toLowerCase().includes(q)) ||
     (s.seller_email && s.seller_email.toLowerCase().includes(q)) ||
@@ -55,7 +55,7 @@ const filteredSales = computed(() => {
 // Estadísticas rápidas
 const statsToday = computed(() => {
   const today = new Date().toISOString().slice(0, 10)
-  const todaySales = sales.value.filter(s =>
+  const todaySales = sales.value.filter((s: SaleHistoryItem) =>
     s.created_at && s.created_at.startsWith(today) && s.status === 'completed'
   )
   return {

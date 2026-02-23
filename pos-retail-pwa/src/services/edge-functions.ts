@@ -193,6 +193,7 @@ export interface AnalizarProductoImagenResponse {
     name?: string
     description?: string
     category_name?: string
+    sell_by?: 'unit' | 'weight'
     sku?: string
     barcode?: string
     price?: number

@@ -300,6 +300,61 @@ function buscarManual() {
   handleBarcode(scannerManualCode.value)
 }
 
+// Quick-add: navegación con flechas y confirmar con Enter
+const quickAddQty = ref(1)
+const highlightedIndex = ref(0)
+
+watch(searchQuery, () => {
+  quickAddQty.value = 1
+  highlightedIndex.value = 0
+})
+
+function quickAddStep(producto: any): number {
+  return productSellsByWeight(producto) ? 0.25 : 1
+}
+
+function navegarResultado(delta: number, event: KeyboardEvent) {
+  if (!searchQuery.value?.trim()) return
+  const resultados = productosFiltrados.value
+  if (resultados.length === 0) return
+  event.preventDefault()
+  quickAddQty.value = 1
+  const newIdx = highlightedIndex.value + delta
+  highlightedIndex.value = Math.max(0, Math.min(newIdx, resultados.length - 1))
+}
+
+function ajustarQuickQty(delta: number, event: KeyboardEvent) {
+  if (!searchQuery.value?.trim()) return
+  const resultados = productosFiltrados.value
+  if (resultados.length === 0) return
+  const producto = resultados[highlightedIndex.value]
+  if (!producto || (producto.stock ?? 0) <= 0) return
+  event.preventDefault()
+  const step = quickAddStep(producto)
+  const newQty = Math.round((quickAddQty.value + delta * step) * 100) / 100
+  const maxStock = producto.stock ?? 0
+  quickAddQty.value = Math.max(step, Math.min(newQty, maxStock))
+}
+
+function seleccionarPrimerCoincidencia() {
+  if (!searchQuery.value?.trim()) return
+  const resultados = productosFiltrados.value
+  if (resultados.length === 0) return
+  const producto = resultados[highlightedIndex.value]
+  if (!producto || (producto.stock ?? 0) <= 0) return
+  if (productSellsByWeight(producto)) {
+    weightDialogProduct.value = producto
+    weightDialogValue.value = quickAddQty.value
+    showWeightDialog.value = true
+  } else {
+    carritoStore.addItem(producto, quickAddQty.value)
+    lastAddedId.value = producto.id
+    setTimeout(() => { lastAddedId.value = null }, 600)
+  }
+  searchQuery.value = ''
+  quickAddQty.value = 1
+}
+
 // === CHECKOUT FLOW ===
 function selectPaymentMethod(method: 'efectivo' | 'tarjeta') {
   carritoStore.setPaymentMethod(method)
@@ -442,6 +497,11 @@ function formatHNL(value: number): string {
               prepend-inner-icon="mdi-magnify"
               clearable
               class="mb-3"
+              @keydown.enter="seleccionarPrimerCoincidencia"
+              @keydown.up="(e: KeyboardEvent) => ajustarQuickQty(1, e)"
+              @keydown.down="(e: KeyboardEvent) => ajustarQuickQty(-1, e)"
+              @keydown.left="(e: KeyboardEvent) => navegarResultado(-1, e)"
+              @keydown.right="(e: KeyboardEvent) => navegarResultado(1, e)"
             />
 
             <!-- Filtro por categoría -->
@@ -480,7 +540,8 @@ function formatHNL(value: number): string {
                   :class="{
                     'producto-card-low-stock': isLowStock(producto),
                     'producto-card-added': lastAddedId === producto.id,
-                    'producto-card-sin-stock': (producto.stock || 0) <= 0
+                    'producto-card-sin-stock': (producto.stock || 0) <= 0,
+                    'producto-card-enter-highlight': searchQuery?.trim() && productosFiltrados.indexOf(producto) === highlightedIndex && (producto.stock || 0) > 0
                   }"
                   :disabled="(producto.stock || 0) <= 0"
                   role="button"
@@ -517,6 +578,26 @@ function formatHNL(value: number): string {
                     <!-- Add overlay on hover -->
                     <div class="producto-add-overlay">
                       <v-icon color="white" size="28">mdi-cart-plus</v-icon>
+                    </div>
+                    <!-- Enter badge on first search result -->
+                    <div
+                      v-if="searchQuery?.trim() && productosFiltrados.indexOf(producto) === highlightedIndex && (producto.stock || 0) > 0"
+                      class="enter-badge"
+                    >
+                      <span v-if="quickAddQty > 1" class="enter-badge-qty">{{ productSellsByWeight(producto) ? quickAddQty.toFixed(2) : quickAddQty }}</span>
+                      <v-icon size="14" color="white">mdi-keyboard-return</v-icon>
+                    </div>
+                    <!-- Quick navigation arrows hint -->
+                    <div
+                      v-if="searchQuery?.trim() && productosFiltrados.indexOf(producto) === highlightedIndex && (producto.stock || 0) > 0"
+                      class="arrows-hint"
+                    >
+                      <v-icon size="11" color="white">mdi-arrow-left</v-icon>
+                      <div class="arrows-hint-vertical">
+                        <v-icon size="11" color="white">mdi-arrow-up</v-icon>
+                        <v-icon size="11" color="white">mdi-arrow-down</v-icon>
+                      </div>
+                      <v-icon size="11" color="white">mdi-arrow-right</v-icon>
                     </div>
                   </div>
 
@@ -1330,6 +1411,66 @@ function formatHNL(value: number): string {
   filter: grayscale(0.4);
 }
 
+/* Enter highlight on first search result */
+.producto-card-enter-highlight {
+  border: 2px solid rgb(var(--v-theme-primary)) !important;
+  box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.18), var(--neo-raised) !important;
+  transform: translateY(-2px);
+}
+
+.enter-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgb(var(--v-theme-primary));
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  z-index: 2;
+  animation: enter-badge-pulse 1.5s ease-in-out infinite;
+}
+
+.enter-badge-qty {
+  background: rgba(255, 255, 255, 0.25);
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.arrows-hint {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+  padding: 2px 4px;
+  z-index: 2;
+  backdrop-filter: blur(4px);
+  opacity: 0.5;
+}
+
+.arrows-hint-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+@keyframes enter-badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 /* Image container & overlays */
 .producto-img-container {
   position: relative;
@@ -1512,7 +1653,6 @@ function formatHNL(value: number): string {
   font-weight: 700;
   outline: none;
   color: inherit;
-  -moz-appearance: textfield;
 }
 
 .qty-input::-webkit-outer-spin-button,

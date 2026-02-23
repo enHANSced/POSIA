@@ -414,8 +414,17 @@ async function saveCategoryForm() {
   }
 }
 
+function categoryProductCount(categoryId: string): number {
+  return productosStore.products.filter((p: Product) => p.category_id === categoryId).length
+}
+
 async function removeCategory(id: string) {
   categoryError.value = ''
+  const count = categoryProductCount(id)
+  if (count > 0) {
+    categoryError.value = `No se puede eliminar: hay ${count} producto${count > 1 ? 's' : ''} asociado${count > 1 ? 's' : ''} a esta categoría.`
+    return
+  }
   try {
     await deleteCategory(id)
     await loadCategories()
@@ -424,7 +433,7 @@ async function removeCategory(id: string) {
     }
   } catch (err) {
     console.error('Error eliminando categoría:', err)
-    categoryError.value = 'No se pudo eliminar. Puede tener productos asociados.'
+    categoryError.value = 'No se pudo eliminar la categoría.'
   }
 }
 
@@ -1249,11 +1258,14 @@ function getCategoryName(categoryId: string | null): string {
               </template>
               <v-list-item-title class="font-weight-medium">{{ cat.name }}</v-list-item-title>
               <v-list-item-subtitle v-if="cat.description">{{ cat.description }}</v-list-item-subtitle>
+              <v-list-item-subtitle v-if="categoryProductCount(cat.id) > 0" class="text-caption">
+                {{ categoryProductCount(cat.id) }} producto{{ categoryProductCount(cat.id) > 1 ? 's' : '' }}
+              </v-list-item-subtitle>
               <template #append>
                 <v-btn icon size="x-small" variant="text" @click="openCategoryForm(cat)">
                   <v-icon size="16">mdi-pencil</v-icon>
                 </v-btn>
-                <v-btn icon size="x-small" variant="text" color="error" @click="removeCategory(cat.id)">
+                <v-btn icon size="x-small" variant="text" color="error" @click="removeCategory(cat.id)" :disabled="categoryProductCount(cat.id) > 0" :title="categoryProductCount(cat.id) > 0 ? 'Tiene productos asociados' : 'Eliminar categoría'">
                   <v-icon size="16">mdi-delete</v-icon>
                 </v-btn>
               </template>

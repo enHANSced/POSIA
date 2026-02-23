@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, shallowRef, onMounted, computed } from 'vue'
+import { ref, shallowRef, triggerRef, onMounted, computed } from 'vue'
 import { fetchSalesHistory } from '@/services/database'
 import type { SaleItem } from '@/types/supabase'
 import type { SaleHistoryItem } from '@/services/database'
 import FacturaRecibo from '@/components/pos/FacturaRecibo.vue'
 import type { FacturaData } from '@/components/pos/FacturaRecibo.vue'
 
-const sales = ref<SaleHistoryItem[]>([])
+const sales = shallowRef<SaleHistoryItem[]>([])
 const loading = ref(false)
 const selectedSale = shallowRef<SaleHistoryItem | null>(null)
 const showDetails = ref(false)
@@ -32,6 +32,7 @@ async function loadSales() {
       dateTo.value || undefined,
       200
     )
+    triggerRef(sales)
   } catch (err) {
     console.error('Error cargando ventas:', err)
   } finally {
@@ -41,9 +42,10 @@ async function loadSales() {
 
 // Filtrar ventas por búsqueda
 const filteredSales = computed((): SaleHistoryItem[] => {
-  if (!searchQuery.value.trim()) return sales.value
+  const all = sales.value
+  if (!searchQuery.value.trim()) return all
   const q = searchQuery.value.toLowerCase()
-  return sales.value.filter((s: SaleHistoryItem) =>
+  return all.filter(s =>
     s.sale_number.toLowerCase().includes(q) ||
     (s.seller_name && s.seller_name.toLowerCase().includes(q)) ||
     (s.seller_email && s.seller_email.toLowerCase().includes(q)) ||
@@ -55,7 +57,7 @@ const filteredSales = computed((): SaleHistoryItem[] => {
 // Estadísticas rápidas
 const statsToday = computed(() => {
   const today = new Date().toISOString().slice(0, 10)
-  const todaySales = sales.value.filter((s: SaleHistoryItem) =>
+  const todaySales = sales.value.filter(s =>
     s.created_at && s.created_at.startsWith(today) && s.status === 'completed'
   )
   return {

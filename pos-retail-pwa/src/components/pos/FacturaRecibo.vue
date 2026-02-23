@@ -45,17 +45,19 @@ const emit = defineEmits<{
   close: []
 }>()
 
-// Datos del negocio por defecto
+// Datos del negocio por defecto — La Ceiba, Atlántida
 const business = computed(() => ({
   name: props.data.businessName || 'POS Retail IA',
-  rtn: props.data.businessRtn || '0801-XXXX-XXXXX',
-  address: props.data.businessAddress || 'Tegucigalpa, Francisco Morazán, Honduras',
+  rtn: props.data.businessRtn || '0501-XXXX-XXXXX',
+  address: props.data.businessAddress || 'La Ceiba, Atlántida, Honduras',
   phone: props.data.businessPhone || '+504 XXXX-XXXX',
   email: props.data.businessEmail || 'contacto@posretail.hn',
   cai: props.data.cai || 'XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXX-XX',
   rangeStart: props.data.invoiceRangeStart || '000-001-01-00000001',
   rangeEnd: props.data.invoiceRangeEnd || '000-001-01-00001000',
   rangeExpiry: props.data.invoiceRangeExpiry || '31/12/2026',
+  municipality: 'La Ceiba',
+  department: 'Atlántida',
 }))
 
 // Calcular ISV desglosado (Honduras: 15% estándar)
@@ -179,7 +181,7 @@ function handleClose() {
           <!-- Header del negocio -->
           <div class="center header">
             <h1 class="bold">{{ business.name }}</h1>
-            <p>RTN: {{ business.rtn }}</p>
+            <p class="bold">RTN: {{ business.rtn }}</p>
             <p>{{ business.address }}</p>
             <p>Tel: {{ business.phone }}</p>
             <p v-if="business.email">{{ business.email }}</p>
@@ -187,14 +189,19 @@ function handleClose() {
 
           <div class="divider"></div>
 
-          <!-- Datos fiscales -->
-          <div class="center" style="margin-bottom: 4px;">
-            <p class="bold">FACTURA</p>
+          <!-- Título documento fiscal -->
+          <div class="center" style="margin-bottom: 6px;">
+            <p class="bold" style="font-size: 13px; letter-spacing: 1px;">FACTURA</p>
+            <p style="font-size: 9px;">Documento Autorizado por el SAR</p>
           </div>
-          <div class="info-row"><span>CAI:</span></div>
-          <div class="center" style="font-size: 9px; word-break: break-all;">{{ business.cai }}</div>
+
+          <!-- CAI -->
+          <div class="info-row"><span class="bold">CAI:</span></div>
+          <div class="center" style="font-size: 9px; word-break: break-all; margin-bottom: 4px;">{{ business.cai }}</div>
+
+          <!-- Datos de la factura -->
           <div class="info-row"><span>No. Factura:</span><span class="bold">{{ invoiceNumber }}</span></div>
-          <div class="info-row"><span>Fecha:</span><span>{{ fechaFormateada }}</span></div>
+          <div class="info-row"><span>Fecha de Emisión:</span><span>{{ fechaFormateada }}</span></div>
           <div class="info-row"><span>Hora:</span><span>{{ horaFormateada }}</span></div>
           <div class="info-row"><span>Vendedor:</span><span>{{ data.sellerName }}</span></div>
 
@@ -272,19 +279,24 @@ function handleClose() {
 
           <div class="divider"></div>
 
-          <!-- Información legal Honduras -->
+          <!-- Información legal SAR Honduras -->
           <div class="legal center">
-            <p>Rango autorizado: {{ business.rangeStart }} a {{ business.rangeEnd }}</p>
-            <p>Fecha límite de emisión: {{ business.rangeExpiry }}</p>
-            <p style="margin-top: 4px;">La factura es beneficio de todos. ¡Exíjala!</p>
-            <p>Artículo 1 Acuerdo 027-2002 del 20-06-2002</p>
-            <p>Original: Cliente | Copia: Obligado Tributario</p>
+            <p class="bold">Rango Autorizado</p>
+            <p>{{ business.rangeStart }} a {{ business.rangeEnd }}</p>
+            <p>Fecha Límite de Emisión: {{ business.rangeExpiry }}</p>
+            <div style="margin-top: 6px; padding: 3px; border: 1px solid #999;">
+              <p class="bold">La factura es beneficio de todos. ¡Exíjala!</p>
+            </div>
+            <p style="margin-top: 3px;">Art. 1 Acuerdo No. 027-2002 del 20/06/2002</p>
+            <p style="margin-top: 2px;">Original: Cliente &nbsp;|&nbsp; Copia: Obligado Tributario</p>
+            <p style="margin-top: 2px;">No se aceptan devoluciones sin esta factura</p>
           </div>
 
           <!-- Footer -->
           <div class="footer center">
             <div class="divider"></div>
-            <p>¡Gracias por su compra!</p>
+            <p class="bold">¡Gracias por su compra!</p>
+            <p style="font-size: 8px; margin-top: 2px;">{{ business.municipality }}, {{ business.department }}</p>
             <p style="font-size: 8px; margin-top: 2px;">Generado por POS Retail IA</p>
           </div>
         </div>

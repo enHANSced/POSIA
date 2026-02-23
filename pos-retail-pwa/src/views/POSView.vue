@@ -315,6 +315,14 @@ async function finalizarVenta() {
   checkoutStep.value = 'processing'
 
   try {
+    // Guardar datos extra de la transacción en notes (JSON) para reconstruir factura
+    const extraData = JSON.stringify({
+      customer_name: customerName.value || null,
+      customer_rtn: customerRtn.value || null,
+      monto_recibido: carritoStore.paymentMethod === 'efectivo' ? (montoRecibido.value || null) : null,
+      cambio: carritoStore.paymentMethod === 'efectivo' ? cambio.value : null,
+    })
+
     const response = await procesarVenta({
       items: carritoStore.getSaleItems(),
       total: carritoStore.getTotal(),
@@ -324,6 +332,7 @@ async function finalizarVenta() {
       payment_method: carritoStore.paymentMethod,
       customer_name: customerName.value || undefined,
       customer_rtn: customerRtn.value || undefined,
+      notes: extraData,
     })
 
     lastSaleResponse.value = response

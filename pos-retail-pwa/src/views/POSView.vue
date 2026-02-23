@@ -9,6 +9,7 @@ import type { ProcesarVentaResponse } from '@/services/edge-functions'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 import FacturaRecibo from '@/components/pos/FacturaRecibo.vue'
 import type { FacturaData } from '@/components/pos/FacturaRecibo.vue'
+import { playSuccessBeep, playErrorBeep } from '@/composables/useScanSound'
 
 const productosStore = useProductosStore()
 const carritoStore = useCarritoStore()
@@ -254,13 +255,16 @@ async function handleBarcode(code: string) {
 
   const product = await productosStore.getByBarcode(barcode)
   if (!product) {
+    playErrorBeep()
     scannerError.value = 'No se encontró producto para ese código.'
     return
   }
   if ((product.stock || 0) <= 0) {
+    playErrorBeep()
     scannerError.value = 'El producto está sin stock.'
     return
   }
+  playSuccessBeep()
   scannerError.value = ''
   scannerStatus.value = `Producto agregado: ${product.name}`
   carritoStore.addItem(product)

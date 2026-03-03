@@ -337,8 +337,8 @@ export async function updateProductStock(
     p_quantity: quantity
   })
 
-  // Si no existe la función RPC, usar update directo
-  if (updateError && updateError.code === 'PGRST202') {
+  // Fallback a update directo si falla el RPC (función ausente, ambigua o error temporal)
+  if (updateError) {
     const { data: product } = await supabase
       .from('products')
       .select('stock')
@@ -346,15 +346,19 @@ export async function updateProductStock(
       .single()
 
     if (product) {
-      await supabase
+      const { error: directUpdateError } = await supabase
         .from('products')
         .update({ 
           stock: (product.stock || 0) + quantity,
           updated_at: new Date().toISOString()
         })
         .eq('id', productId)
+
+      if (!directUpdateError) {
+        return
+      }
     }
-  } else if (updateError) {
+
     throw updateError
   }
 }

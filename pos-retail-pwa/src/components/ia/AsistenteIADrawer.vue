@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useIAStore } from '@/stores/ia'
 import InsightsIAPanel from '@/components/ia/InsightsIAPanel.vue'
 import type { IAMessage, WebSource } from '@/services/edge-functions'
@@ -7,11 +7,111 @@ import type { IAMessage, WebSource } from '@/services/edge-functions'
 const model = defineModel<boolean>({ default: false })
 const iaStore = useIAStore()
 
+// ── Resize del panel ──────────────────────────────────────────────────────
+const drawerWidth = ref(420)
+const DRAWER_MIN = 300
+const DRAWER_MAX = 820
+
+let _resizing = false
+let _resizeStartX = 0
+let _resizeStartWidth = 0
+
+function onResizeMove(e: MouseEvent | TouchEvent) {
+  if (!_resizing) return
+  const clientX = 'touches' in e ? e.touches[0]!.clientX : (e as MouseEvent).clientX
+  const delta = _resizeStartX - clientX // left drag = panel grows
+  drawerWidth.value = Math.min(DRAWER_MAX, Math.max(DRAWER_MIN, _resizeStartWidth + delta))
+}
+
+function onResizeEnd() {
+  if (!_resizing) return
+  _resizing = false
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeEnd)
+  document.removeEventListener('touchmove', onResizeMove)
+  document.removeEventListener('touchend', onResizeEnd)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
+function onResizeStart(e: MouseEvent | TouchEvent) {
+  e.preventDefault()
+  _resizing = true
+  _resizeStartX = 'touches' in e ? e.touches[0]!.clientX : (e as MouseEvent).clientX
+  _resizeStartWidth = drawerWidth.value
+  document.addEventListener('mousemove', onResizeMove)
+  document.addEventListener('mouseup', onResizeEnd)
+  document.addEventListener('touchmove', onResizeMove, { passive: false })
+  document.addEventListener('touchend', onResizeEnd)
+  document.body.style.cursor = 'ew-resize'
+  document.body.style.userSelect = 'none'
+}
+
+onUnmounted(onResizeEnd)
+// ──────────────────────────────────────────────────────────────────────────
+
 const mensaje = ref('')
 const panelMensajes = ref<HTMLElement | null>(null)
 const mostrarHistorial = ref(false)
 const tabActiva = ref<'chat' | 'insights'>('chat')
 const expandedSources = ref<Record<string, boolean>>({})
+
+// ── Typewriter effect ──────────────────────────────────────────────────────
+const streamingMsgIdx = ref<number | null>(null)
+const streamingContent = ref('')
+let streamingTimer: ReturnType<typeof setInterval> | null = null
+
+function stopStreaming() {
+  if (streamingTimer) { clearInterval(streamingTimer); streamingTimer = null }
+  streamingMsgIdx.value = null
+  streamingContent.value = ''
+}
+
+function scrollToMsgStart(msgIdx: number) {
+  nextTick(() => {
+    if (!panelMensajes.value) return
+    const bubbles = panelMensajes.value.querySelectorAll<HTMLElement>('.mb-3.d-flex')
+    const target = bubbles[msgIdx] as HTMLElement | undefined
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  })
+}
+
+function startStreaming(msgIdx: number, fullContent: string) {
+  stopStreaming()
+  streamingMsgIdx.value = msgIdx
+  streamingContent.value = ''
+
+  // Scroll to show the TOP of the new message, not the bottom
+  scrollToMsgStart(msgIdx)
+
+  const words = fullContent.split(' ')
+  let wordIdx = 0
+  // aim ≈ 40 words/s → 25 ms per word, but cap at max 3 words per tick for long responses
+  const msPerTick = 25
+  const batchSize = Math.max(1, Math.min(3, Math.ceil(words.length / 60)))
+
+  streamingTimer = setInterval(() => {
+    wordIdx = Math.min(wordIdx + batchSize, words.length)
+    streamingContent.value = words.slice(0, wordIdx).join(' ')
+    if (wordIdx >= words.length) {
+      clearInterval(streamingTimer!); streamingTimer = null
+      setTimeout(() => { if (streamingMsgIdx.value === msgIdx) streamingMsgIdx.value = null }, 600)
+    }
+  }, msPerTick)
+}
+
+watch(() => iaStore.enviando, (val, oldVal) => {
+  if (oldVal && !val) {
+    const msgs = iaStore.mensajes
+    const lastIdx = msgs.length - 1
+    if (lastIdx >= 0 && msgs[lastIdx]?.role === 'assistant') {
+      nextTick(() => startStreaming(lastIdx, msgs[lastIdx]!.content))
+    }
+  }
+})
+// ──────────────────────────────────────────────────────────────────────────
 
 type ParsedLine = {
   tipo: 'titulo' | 'bullet' | 'numbered' | 'texto'
@@ -220,16 +320,15 @@ watch(
     if (!panelMensajes.value) return
 
     const lastMsg = iaStore.mensajes[iaStore.mensajes.length - 1]
-    if (lastMsg?.role === 'assistant' && newLen > (oldLen ?? 0)) {
-      const bubbles = panelMensajes.value.querySelectorAll('.mb-3.d-flex')
-      const userBubble = bubbles[bubbles.length - 2] as HTMLElement | undefined
+    if (lastMsg?.role === 'user' && newLen > (oldLen ?? 0)) {
+      // User sent a message → scroll to show it at the top so response appears below
+      const bubbles = panelMensajes.value.querySelectorAll<HTMLElement>('.mb-3.d-flex')
+      const userBubble = bubbles[bubbles.length - 1]
       if (userBubble) {
         userBubble.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        return
       }
     }
-
-    panelMensajes.value.scrollTop = panelMensajes.value.scrollHeight
+    // Don't auto-scroll for assistant messages — startStreaming handles it
   }
 )
 </script>
@@ -239,9 +338,19 @@ watch(
     v-model="model"
     location="right"
     temporary
-    width="420"
+    :width="drawerWidth"
     class="d-flex flex-column"
   >
+    <!-- Handle de redimensionado (borde izquierdo) -->
+    <div
+      class="ia-resize-handle"
+      @mousedown.prevent="onResizeStart"
+      @touchstart.prevent="onResizeStart"
+      title="Arrastrar para redimensionar"
+    >
+      <div class="ia-resize-grip" />
+    </div>
+
     <div class="d-flex flex-column h-100 overflow-hidden">
       <div class="pa-3 d-flex align-center flex-shrink-0">
         <v-btn icon size="small" variant="text" @click="model = false" class="mr-2">
@@ -325,62 +434,68 @@ watch(
 
           <div class="d-flex flex-column flex-grow-1 overflow-hidden px-3 pb-3 pt-2" style="height: calc(100vh - 145px);">
             <div ref="panelMensajes" class="mensajes-panel neo-flat pa-3 mb-3 flex-grow-1 d-flex flex-column" style="min-height: 0;">
-              <div v-if="mensajes.length === 0" class="text-caption text-medium-emphasis text-center py-6 my-auto">
-                <v-icon size="48" color="primary" class="mb-2 opacity-50">mdi-robot-outline</v-icon>
-                <br>
-                Escribí una pregunta sobre ventas, productos o recomendaciones.
+              <div v-if="mensajes.length === 0" class="ia-empty-state my-auto">
+                <div class="ia-empty-icon-wrap mb-3">
+                  <v-icon size="36" color="primary">mdi-robot-happy-outline</v-icon>
+                </div>
+                <p class="text-body-2 font-weight-medium mb-1">¿En qué puedo ayudarte?</p>
+                <p class="text-caption text-medium-emphasis">Hacé preguntas sobre ventas, inventario, precios o cualquier tema de tu negocio.</p>
               </div>
 
               <div class="d-flex flex-column justify-end" :class="{ 'flex-grow-1': mensajes.length > 0 }">
                 <div
                   v-for="(msg, index) in mensajes"
                   :key="index"
-                  class="mb-3 d-flex"
+                  class="mb-3 d-flex msg-fade-in"
                   :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
                 >
                   <div v-if="msg.role === 'assistant'" class="mr-2 mt-1 flex-shrink-0">
-                    <v-avatar size="28" color="primary" variant="tonal">
-                      <v-icon size="16">mdi-robot-happy</v-icon>
-                    </v-avatar>
+                    <div class="ia-avatar">
+                      <v-icon size="15" color="primary">mdi-robot-happy</v-icon>
+                    </div>
                   </div>
 
-                  <div class="mensaje-bubble" :class="msg.role === 'user' ? 'mensaje-user bg-primary text-white' : 'mensaje-ia bg-surface'">
+                  <div class="mensaje-bubble" :class="msg.role === 'user' ? 'mensaje-user bg-primary text-white' : 'mensaje-ia bg-surface'" :style="msg.role === 'assistant' ? 'flex: 1; min-width: 0;' : ''">
                     <template v-if="msg.role === 'assistant'">
                       <div
-                        v-for="(block, bIdx) in parsearRespuestaIA(msg.content)"
+                        v-for="(block, bIdx) in parsearRespuestaIA(streamingMsgIdx === index ? streamingContent : msg.content)"
                         :key="`${index}-block-${bIdx}`"
-                        class="mb-2"
+                        class="mb-1"
                       >
                         <template v-if="block.tipo === 'tabla'">
-                          <v-table density="compact" class="neo-markdown-table mt-2 mb-3">
-                            <thead>
-                              <tr>
-                                <th v-for="(header, hIdx) in block.headers" :key="`h-${hIdx}`">{{ header }}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr v-for="(row, rIdx) in block.rows" :key="`r-${rIdx}`">
-                                <td v-for="(cell, cIdx) in row" :key="`c-${rIdx}-${cIdx}`" v-html="cell" />
-                              </tr>
-                            </tbody>
-                          </v-table>
+                          <div class="ia-table-wrapper my-2">
+                            <table class="ia-table">
+                              <thead>
+                                <tr>
+                                  <th v-for="(header, hIdx) in block.headers" :key="`h-${hIdx}`" v-html="header" />
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr v-for="(row, rIdx) in block.rows" :key="`r-${rIdx}`">
+                                  <td v-for="(cell, cIdx) in row" :key="`c-${rIdx}-${cIdx}`" v-html="cell" />
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
                         </template>
 
                         <template v-else>
-                          <div v-if="block.linea.tipo === 'titulo'" class="text-body-2 font-weight-bold text-primary mt-3 mb-1" v-html="block.linea.valor" />
-                          <div v-else-if="block.linea.tipo === 'bullet'" class="d-flex align-start pl-2 mb-1">
-                            <v-icon size="14" class="mr-2 mt-1 text-primary opacity-70">mdi-circle-small</v-icon>
+                          <div v-if="block.linea.tipo === 'titulo'" class="ia-block-title mt-2 mb-1" v-html="block.linea.valor" />
+                          <div v-else-if="block.linea.tipo === 'bullet'" class="d-flex align-start pl-1 mb-1">
+                            <span class="ia-bullet-dot mr-2 mt-1 flex-shrink-0">●</span>
                             <span v-html="block.linea.valor" class="flex-grow-1" />
                           </div>
-                          <div v-else-if="block.linea.tipo === 'numbered'" class="d-flex align-start pl-2 mb-1">
-                            <span class="mr-2 font-weight-bold text-primary opacity-70 text-caption mt-1" style="min-width: 14px;">{{ block.linea.prefix }}</span>
+                          <div v-else-if="block.linea.tipo === 'numbered'" class="d-flex align-start pl-1 mb-1">
+                            <span class="ia-numbered-prefix mr-2 mt-1 flex-shrink-0">{{ block.linea.prefix }}</span>
                             <span v-html="block.linea.valor" class="flex-grow-1" />
                           </div>
                           <div v-else v-html="block.linea.valor" class="mt-1" />
                         </template>
                       </div>
 
-                      <div v-if="msg.webSources && msg.webSources.length > 0" class="web-sources-section mt-3 pt-2">
+                      <span v-if="streamingMsgIdx === index" class="ia-cursor">▌</span>
+
+                      <div v-if="msg.webSources && msg.webSources.length > 0 && streamingMsgIdx !== index" class="web-sources-section mt-3 pt-2">
                         <div class="d-flex align-center mb-1">
                           <v-icon size="12" color="success" class="mr-1">mdi-web</v-icon>
                           <span class="text-caption font-weight-medium text-success" style="font-size: 0.7rem !important;">
@@ -428,7 +543,7 @@ watch(
                         </div>
                       </div>
 
-                      <div v-else-if="msg.usedWebSearch" class="mt-2">
+                      <div v-else-if="msg.usedWebSearch && streamingMsgIdx !== index" class="mt-2">
                         <v-chip size="x-small" variant="tonal" color="success" prepend-icon="mdi-magnify" density="compact">
                           Respuesta mejorada con búsqueda web
                         </v-chip>
@@ -455,17 +570,18 @@ watch(
               </div>
             </div>
 
-            <div class="mb-3 flex-shrink-0" v-if="mensajes.length === 0 || promptSugeridos.length > 0">
-              <div class="text-caption text-medium-emphasis mb-2">Sugerencias rápidas</div>
+            <div class="mb-3 flex-shrink-0" v-if="(mensajes.length === 0 || promptSugeridos.length > 0) && streamingMsgIdx === null">
+              <div class="text-caption text-medium-emphasis mb-2 px-1">Sugerencias rápidas</div>
               <div class="d-flex flex-wrap ga-2">
-                <div
+                <button
                   v-for="sugerencia in promptSugeridos"
                   :key="sugerencia"
                   class="neo-suggestion-btn text-caption text-primary cursor-pointer px-3 py-2"
+                  :disabled="iaStore.enviando"
                   @click="enviarSugerencia(sugerencia)"
                 >
                   {{ sugerencia }}
-                </div>
+                </button>
               </div>
             </div>
 
@@ -473,7 +589,7 @@ watch(
               {{ iaStore.error }}
             </v-alert>
 
-            <div class="flex-shrink-0 neo-card-pressed pa-2 rounded-lg">
+            <div class="flex-shrink-0 ia-input-box neo-card-pressed">
               <v-textarea
                 v-model="mensaje"
                 rows="1"
@@ -485,21 +601,25 @@ watch(
                 placeholder="Preguntá algo al asistente..."
                 :disabled="iaStore.enviando"
                 @keydown="manejarTecladoEnvio"
-                class="px-2"
+                class="ia-textarea px-2"
               >
                 <template #append-inner>
                   <v-btn
-                    icon="mdi-send"
-                    variant="text"
+                    :icon="iaStore.enviando ? 'mdi-stop-circle-outline' : 'mdi-send'"
+                    variant="flat"
                     color="primary"
                     size="small"
-                    :loading="iaStore.enviando"
-                    :disabled="!mensaje.trim() || iaStore.enviando"
+                    :loading="false"
+                    :disabled="(!mensaje.trim() && !iaStore.enviando) || (iaStore.enviando && false)"
                     @click="enviar"
-                    class="mt-n1"
+                    class="ia-send-btn"
+                    rounded="lg"
                   />
                 </template>
               </v-textarea>
+              <div class="ia-input-hint text-caption text-medium-emphasis px-2 pb-1">
+                Enter para enviar · Shift+Enter para nueva línea
+              </div>
             </div>
           </div>
         </v-window-item>
@@ -515,41 +635,160 @@ watch(
 </template>
 
 <style scoped>
+/* ── Panel de mensajes ────────────────────────────────────────────── */
 .mensajes-panel {
   overflow-y: auto;
   border-radius: var(--neo-radius);
   scroll-behavior: smooth;
 }
 
+/* ── Burbujas ─────────────────────────────────────────────────────── */
 .mensaje-bubble {
   display: inline-block;
-  max-width: 85%;
-  padding: 12px 16px;
-  border-radius: 16px;
-  font-size: 0.9rem;
-  line-height: 1.4;
+  max-width: 86%;
+  padding: 10px 14px;
+  border-radius: 18px;
+  font-size: 0.875rem;
+  line-height: 1.55;
   text-align: left;
   word-break: break-word;
 }
 
 .mensaje-user {
-  border-bottom-right-radius: 4px;
-  box-shadow: 0 4px 12px rgba(74, 123, 247, 0.2);
+  border-bottom-right-radius: 5px;
+  box-shadow: 0 3px 10px rgba(74, 123, 247, 0.25);
 }
 
 .mensaje-ia {
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: 5px;
   box-shadow: var(--neo-raised-sm);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-}
-
-.neo-markdown-table {
-  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  /* Full width for IA responses (they can contain tables, long text) */
+  display: block;
+  max-width: 100%;
+  width: 100%;
   overflow: hidden;
-  background: var(--neo-bg-alt);
-  box-shadow: var(--neo-pressed-sm);
 }
 
+/* ── Avatar IA pequeño ────────────────────────────────────────────── */
+.ia-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(74, 123, 247, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--neo-raised-sm);
+}
+
+/* ── Estado vacío ─────────────────────────────────────────────────── */
+.ia-empty-state {
+  text-align: center;
+  padding: 24px 16px;
+}
+
+.ia-empty-icon-wrap {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(74, 123, 247, 0.1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--neo-raised);
+}
+
+/* ── Bloques de contenido IA ──────────────────────────────────────── */
+.ia-block-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: rgb(var(--v-theme-primary));
+  letter-spacing: 0.01em;
+}
+
+.ia-bullet-dot {
+  font-size: 0.5rem;
+  color: rgb(var(--v-theme-primary));
+  opacity: 0.7;
+  line-height: 1.8;
+}
+
+.ia-numbered-prefix {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: rgb(var(--v-theme-primary));
+  opacity: 0.75;
+  min-width: 16px;
+  line-height: 1.8;
+}
+
+/* ── Cursor typewriter ────────────────────────────────────────────── */
+.ia-cursor {
+  display: inline-block;
+  color: rgb(var(--v-theme-primary));
+  font-weight: 400;
+  animation: blink-cursor 0.9s step-end infinite;
+  margin-left: 1px;
+  line-height: 1;
+}
+
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ── Tabla personalizada ──────────────────────────────────────────── */
+.ia-table-wrapper {
+  overflow-x: auto;
+  border-radius: 10px;
+  box-shadow: var(--neo-pressed-sm);
+  background: var(--neo-bg-alt, #f0f2f5);
+  max-width: 100%;
+}
+
+.ia-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.ia-table thead tr {
+  background: rgba(74, 123, 247, 0.1);
+}
+
+.ia-table th {
+  padding: 7px 11px;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.73rem;
+  color: rgb(var(--v-theme-primary));
+  border-bottom: 2px solid rgba(74, 123, 247, 0.18);
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.ia-table td {
+  padding: 6px 11px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  vertical-align: top;
+  min-width: 70px;
+}
+
+.ia-table tbody tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.ia-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ia-table tbody tr:hover {
+  background: rgba(74, 123, 247, 0.04);
+}
+
+/* ── Fuentes web ──────────────────────────────────────────────────── */
 .web-sources-section {
   border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
@@ -559,7 +798,7 @@ watch(
   color: #2e7d32;
   font-size: 0.68rem !important;
   text-decoration: none;
-  transition: all 0.2s ease;
+  transition: all 0.18s ease;
   border: 1px solid rgba(76, 175, 80, 0.15);
 }
 
@@ -572,29 +811,64 @@ watch(
 .web-favicon {
   width: 14px;
   height: 14px;
-  border-radius: 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
 }
 
+/* ── Sugerencias ──────────────────────────────────────────────────── */
 .neo-suggestion-btn {
+  background: none;
+  border: none;
   background-color: var(--neo-bg);
   border-radius: 12px;
   box-shadow: var(--neo-raised-sm);
-  transition: all 0.2s ease;
+  transition: all 0.18s ease;
   user-select: none;
   border: 1px solid rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1.4;
 }
 
-.neo-suggestion-btn:hover {
+.neo-suggestion-btn:hover:not(:disabled) {
   box-shadow: var(--neo-raised);
   transform: translateY(-1px);
-  color: rgb(var(--v-theme-primary)) !important;
 }
 
-.neo-suggestion-btn:active {
+.neo-suggestion-btn:active:not(:disabled) {
   box-shadow: var(--neo-pressed-sm);
   transform: translateY(1px);
 }
 
+.neo-suggestion-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Input area ───────────────────────────────────────────────────── */
+.ia-input-box {
+  border-radius: 14px;
+  padding: 4px 4px 0 4px;
+}
+
+.ia-textarea :deep(.v-field__input) {
+  font-size: 0.875rem;
+  min-height: 36px;
+}
+
+.ia-send-btn {
+  margin-top: -2px;
+  min-width: 34px !important;
+  width: 34px !important;
+  height: 34px !important;
+}
+
+.ia-input-hint {
+  font-size: 0.63rem !important;
+  opacity: 0.55;
+}
+
+/* ── Typing indicator ─────────────────────────────────────────────── */
 .typing-indicator {
   display: flex;
   align-items: center;
@@ -604,27 +878,62 @@ watch(
 
 .typing-indicator span {
   display: block;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background-color: rgba(74, 123, 247, 0.6);
+  background-color: rgba(74, 123, 247, 0.55);
   animation: typing 1.4s infinite ease-in-out both;
 }
 
-.typing-indicator span:nth-child(1) {
-  animation-delay: -0.32s;
-}
-
-.typing-indicator span:nth-child(2) {
-  animation-delay: -0.16s;
-}
+.typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+.typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
 
 @keyframes typing {
-  0%, 80%, 100% {
-    transform: scale(0);
-  }
-  40% {
-    transform: scale(1);
-  }
+  0%, 80%, 100% { transform: scale(0); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* ── Fade-in para nuevos mensajes ─────────────────────────────────── */
+.msg-fade-in {
+  animation: msgFadeIn 0.25s ease-out both;
+}
+
+@keyframes msgFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Handle de resize ─────────────────────────────────────────────── */
+.ia-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.18s ease;
+}
+
+.ia-resize-handle:hover,
+.ia-resize-handle:active {
+  background: rgba(74, 123, 247, 0.12);
+}
+
+.ia-resize-grip {
+  width: 3px;
+  height: 36px;
+  border-radius: 3px;
+  background: rgba(74, 123, 247, 0.25);
+  transition: background 0.18s ease, height 0.18s ease;
+}
+
+.ia-resize-handle:hover .ia-resize-grip,
+.ia-resize-handle:active .ia-resize-grip {
+  background: rgba(74, 123, 247, 0.6);
+  height: 52px;
 }
 </style>

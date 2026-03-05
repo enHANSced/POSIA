@@ -42,6 +42,147 @@ export interface Database {
         }
         Relationships: []
       }
+      combos: {
+        Row: {
+          active: boolean
+          created_at: string
+          description: string | null
+          discount_type: string
+          discount_value: number
+          id: string
+          max_uses_per_sale: number
+          min_quantity_per_product: number
+          name: string
+          product_ids: string[]
+          required_all: boolean
+          updated_at: string
+          valid_from: string | null
+          valid_until: string | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          discount_type: string
+          discount_value: number
+          id?: string
+          max_uses_per_sale?: number
+          min_quantity_per_product?: number
+          name: string
+          product_ids: string[]
+          required_all?: boolean
+          updated_at?: string
+          valid_from?: string | null
+          valid_until?: string | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          discount_type?: string
+          discount_value?: number
+          id?: string
+          max_uses_per_sale?: number
+          min_quantity_per_product?: number
+          name?: string
+          product_ids?: string[]
+          required_all?: boolean
+          updated_at?: string
+          valid_from?: string | null
+          valid_until?: string | null
+        }
+        Relationships: []
+      }
+      discount_applications: {
+        Row: {
+          amount_saved: number
+          combo_id: string | null
+          created_at: string
+          discount_id: string | null
+          discount_type: string
+          discount_value: number
+          id: string
+          reason: string | null
+          sale_id: string
+        }
+        Insert: {
+          amount_saved: number
+          combo_id?: string | null
+          created_at?: string
+          discount_id?: string | null
+          discount_type: string
+          discount_value: number
+          id?: string
+          reason?: string | null
+          sale_id: string
+        }
+        Update: {
+          amount_saved?: number
+          combo_id?: string | null
+          created_at?: string
+          discount_id?: string | null
+          discount_type?: string
+          discount_value?: number
+          id?: string
+          reason?: string | null
+          sale_id?: string
+        }
+        Relationships: []
+      }
+      discounts: {
+        Row: {
+          active: boolean
+          applicable_to: string
+          category_id: string | null
+          created_at: string
+          description: string | null
+          id: string
+          min_amount: number | null
+          min_quantity: number | null
+          name: string
+          product_ids: string[]
+          type: string
+          updated_at: string
+          valid_from: string | null
+          valid_until: string | null
+          value: number
+        }
+        Insert: {
+          active?: boolean
+          applicable_to?: string
+          category_id?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          min_amount?: number | null
+          min_quantity?: number | null
+          name: string
+          product_ids?: string[]
+          type: string
+          updated_at?: string
+          valid_from?: string | null
+          valid_until?: string | null
+          value: number
+        }
+        Update: {
+          active?: boolean
+          applicable_to?: string
+          category_id?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          min_amount?: number | null
+          min_quantity?: number | null
+          name?: string
+          product_ids?: string[]
+          type?: string
+          updated_at?: string
+          valid_from?: string | null
+          valid_until?: string | null
+          value?: number
+        }
+        Relationships: []
+      }
       ia_conversations: {
         Row: {
           created_at: string | null
@@ -316,6 +457,17 @@ export interface Database {
         }
         Relationships: []
       }
+      discount_impact_daily: {
+        Row: {
+          discount_percent_of_revenue: number | null
+          fecha: string | null
+          sales_with_discount: number | null
+          total_discount_amount: number | null
+          total_revenue: number | null
+          total_sales: number | null
+        }
+        Relationships: []
+      }
       sales_summary_today: {
         Row: {
           average_sale: number | null
@@ -374,6 +526,26 @@ export interface Database {
       obtener_contexto_ia: {
         Args: Record<string, never>
         Returns: Json
+      }
+      obtener_contexto_ia_completo: {
+        Args: { p_include_samples?: boolean; p_row_limit?: number }
+        Returns: Json
+      }
+      validate_discount_eligible: {
+        Args: { p_discount_id: string; p_product_ids?: string[]; p_sale_total: number }
+        Returns: Json
+      }
+      detectar_combos_disponibles: {
+        Args: { p_product_ids: string[] }
+        Returns: {
+          combo_id: string
+          combo_name: string
+          discount_type: string
+          discount_value: number
+          is_fully_eligible: boolean
+          matched_count: number
+          required_count: number
+        }[]
       }
     }
     Enums: Record<string, never>
@@ -479,6 +651,53 @@ export interface UserProfile {
   active: boolean | null
   created_at: string | null
   updated_at: string | null
+}
+
+export interface Discount {
+  id: string
+  name: string
+  description: string | null
+  type: 'percentage' | 'fixed'
+  value: number
+  min_amount: number | null
+  min_quantity: number | null
+  applicable_to: 'all' | 'category' | 'product'
+  category_id: string | null
+  product_ids: string[]
+  valid_from: string | null
+  valid_until: string | null
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface Combo {
+  id: string
+  name: string
+  description: string | null
+  discount_type: 'percentage' | 'fixed'
+  discount_value: number
+  product_ids: string[]
+  required_all: boolean
+  min_quantity_per_product: number
+  max_uses_per_sale: number
+  valid_from: string | null
+  valid_until: string | null
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface DiscountApplication {
+  id: string
+  sale_id: string
+  discount_id: string | null
+  combo_id: string | null
+  discount_type: 'percentage' | 'fixed'
+  discount_value: number
+  amount_saved: number
+  reason: string | null
+  created_at: string
 }
 
 export interface LowStockProduct {

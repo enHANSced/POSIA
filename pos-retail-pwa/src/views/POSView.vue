@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useDisplay } from 'vuetify'
 import { useProductosStore } from '@/stores/productos'
 import { useCarritoStore, productSellsByWeight } from '@/stores/carrito'
+import { useDescuentosStore, type ApplicablePromotion } from '@/stores/descuentos'
 import { useAuthStore } from '@/stores/auth'
 import { procesarVenta } from '@/services/edge-functions'
 import type { ProcesarVentaResponse } from '@/services/edge-functions'
@@ -13,6 +14,7 @@ import { playSuccessBeep, playErrorBeep } from '@/composables/useScanSound'
 
 const productosStore = useProductosStore()
 const carritoStore = useCarritoStore()
+const descuentosStore = useDescuentosStore()
 const authStore = useAuthStore()
 const { mobile } = useDisplay()
 
@@ -88,7 +90,10 @@ let barcodeScanner: Html5Qrcode | null = null
 let unsubscribe: (() => void) | null = null
 
 onMounted(async () => {
-  await productosStore.fetchProducts()
+  await Promise.all([
+    productosStore.fetchProducts(),
+    descuentosStore.cargarPromocionesActivas()
+  ])
   unsubscribe = productosStore.subscribeToChanges()
 })
 
@@ -173,6 +178,44 @@ const productosFiltrados = computed(() => {
     p.sku?.toLowerCase().includes(query)
   )
 })
+
+const promocionesElegibles = computed(() => {
+  return descuentosStore.getApplicableDiscounts(carritoStore.items)
+})
+
+const promocionAplicadaId = computed(() => {
+  if (!carritoStore.appliedPromotion) return null
+  if (carritoStore.appliedPromotion.source === 'manual') return 'manual'
+  return `${carritoStore.appliedPromotion.source}:${carritoStore.appliedPromotion.id}`
+})
+
+function aplicarPromocion(promocion: ApplicablePromotion) {
+  carritoStore.applyPromotion({
+    id: promocion.id,
+    source: promocion.source,
+    type: promocion.type,
+    value: promocion.value,
+    amount: promocion.amount,
+    name: promocion.name
+  })
+}
+
+function limpiarPromocionAplicada() {
+  carritoStore.clearPromotion()
+}
+
+watch(promocionesElegibles, (actuales) => {
+  const aplicada = carritoStore.appliedPromotion
+  if (!aplicada || aplicada.source === 'manual') return
+
+  const sigueSiendoElegible = actuales.some(
+    promo => promo.id === aplicada.id && promo.source === aplicada.source
+  )
+
+  if (!sigueSiendoElegible) {
+    carritoStore.clearPromotion()
+  }
+}, { deep: true })
 
 function getStockPercent(producto: any): number {
   const stock = producto.stock ?? 0
@@ -414,6 +457,16 @@ async function finalizarVenta() {
       customer_name: customerName.value || undefined,
       customer_rtn: customerRtn.value || undefined,
       notes: extraData,
+      promotion: carritoStore.appliedPromotion
+        ? {
+          id: carritoStore.appliedPromotion.id,
+          source: carritoStore.appliedPromotion.source,
+          type: carritoStore.appliedPromotion.type,
+          value: carritoStore.appliedPromotion.value,
+          amount: carritoStore.appliedPromotion.amount,
+          name: carritoStore.appliedPromotion.name
+        }
+        : undefined,
     })
 
     lastSaleResponse.value = response
@@ -746,6 +799,40 @@ function formatHNL(value: number): string {
           <!-- Totales -->
           <div class="pa-4 pt-2">
             <div class="neo-totals-box pa-4">
+              <div class="mb-3">
+                <div class="d-flex align-center mb-2">
+                  <v-icon size="16" class="text-medium-emphasis mr-2">mdi-brightness-percent</v-icon>
+                  <span class="text-body-2 text-medium-emphasis">Promociones elegibles</span>
+                </div>
+
+                <div v-if="promocionesElegibles.length > 0" class="d-flex flex-wrap ga-2">
+                  <v-chip
+                    v-for="promo in promocionesElegibles"
+                    :key="`${promo.source}:${promo.id}`"
+                    size="small"
+                    variant="tonal"
+                    :color="promocionAplicadaId === `${promo.source}:${promo.id}` ? 'success' : 'primary'"
+                    class="cursor-pointer"
+                    @click="aplicarPromocion(promo)"
+                  >
+                    {{ promo.name }} · -{{ formatHNL(promo.amount) }}
+                  </v-chip>
+                </div>
+
+                <div v-else class="text-caption text-medium-emphasis">
+                  No hay promociones aplicables para este carrito.
+                </div>
+
+                <div v-if="carritoStore.appliedPromotion" class="d-flex align-center justify-space-between mt-2">
+                  <span class="text-caption text-success">
+                    Aplicada: {{ carritoStore.appliedPromotion.name }}
+                  </span>
+                  <v-btn size="x-small" variant="text" color="error" @click="limpiarPromocionAplicada">
+                    Quitar
+                  </v-btn>
+                </div>
+              </div>
+
               <div class="d-flex justify-space-between align-center mb-2">
                 <div class="d-flex align-center">
                   <v-icon size="16" class="text-medium-emphasis mr-2">mdi-receipt-text-outline</v-icon>
@@ -759,6 +846,13 @@ function formatHNL(value: number): string {
                   <span class="text-body-2 text-medium-emphasis">ISV (15%)</span>
                 </div>
                 <span class="text-body-2">{{ formatHNL(carritoStore.getTax()) }}</span>
+              </div>
+              <div v-if="carritoStore.discount > 0" class="d-flex justify-space-between align-center mb-3">
+                <div class="d-flex align-center">
+                  <v-icon size="16" class="text-success mr-2">mdi-sale</v-icon>
+                  <span class="text-body-2 text-success">Descuento</span>
+                </div>
+                <span class="text-body-2 text-success">-{{ formatHNL(carritoStore.discount) }}</span>
               </div>
               <v-divider class="mb-3" />
               <div class="d-flex justify-space-between align-center">

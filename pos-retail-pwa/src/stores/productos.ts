@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { shallowRef, computed, triggerRef } from 'vue'
+import { shallowRef, computed } from 'vue'
 import { fetchProducts, searchProducts, fetchProductByBarcode } from '@/services/database'
 import { supabase } from '@/services/supabase'
 import type { Product } from '@/types/supabase'

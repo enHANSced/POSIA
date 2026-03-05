@@ -13,6 +13,14 @@ export interface ProcesarVentaRequest {
   notes?: string
   customer_name?: string
   customer_rtn?: string
+  promotion?: {
+    id?: string
+    source: 'discount' | 'combo' | 'manual'
+    type: 'percentage' | 'fixed'
+    value: number
+    amount: number
+    name?: string
+  }
 }
 
 export interface ProcesarVentaResponse {
@@ -45,6 +53,7 @@ export async function procesarVenta(request: ProcesarVentaRequest): Promise<Proc
       notes: request.notes ?? null,
       customer_name: request.customer_name ?? null,
       customer_rtn: request.customer_rtn ?? null,
+      promotion: request.promotion ?? null,
     },
   })
 

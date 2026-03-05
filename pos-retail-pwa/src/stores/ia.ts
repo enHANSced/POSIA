@@ -7,8 +7,8 @@ import {
   eliminarConversacion,
   type IAMessage,
   type IAConversationSummary,
-  type WebSource,
 } from '@/services/edge-functions'
+import { fetchDiscountApplications, fetchLowStockProducts, fetchTodaySales } from '@/services/database'
 
 const DEFAULT_PROMPTS = [
   '¿Qué productos se han vendido más esta semana?',
@@ -16,6 +16,19 @@ const DEFAULT_PROMPTS = [
   'Compara mis precios con el mercado local hondureño.',
   'Recomiéndame 3 acciones para aumentar ingresos mañana.'
 ]
+
+export interface IAInsights {
+  generatedAt: string
+  kpis: {
+    totalSalesToday: number
+    revenueToday: number
+    avgTicketToday: number
+    lowStockCount: number
+    savingsByPromotionsToday: number
+  }
+  mensajesContextuales: string[]
+  recomendacionesRapidas: string[]
+}
 
 export const useIAStore = defineStore('ia', () => {
   // Estado
@@ -26,6 +39,80 @@ export const useIAStore = defineStore('ia', () => {
   const cargando = ref(false)
   const enviando = ref(false)
   const error = ref<string | null>(null)
+  const insights = shallowRef<IAInsights | null>(null)
+  const loadingInsights = ref(false)
+
+  function round2(value: number): number {
+    return Math.round(value * 100) / 100
+  }
+
+  async function cargarInsights() {
+    loadingInsights.value = true
+
+    try {
+      const hoyInicio = new Date()
+      hoyInicio.setHours(0, 0, 0, 0)
+
+      const [salesToday, lowStock, applications] = await Promise.all([
+        fetchTodaySales(),
+        fetchLowStockProducts(),
+        fetchDiscountApplications(hoyInicio.toISOString())
+      ])
+
+      const totalSalesToday = salesToday.length
+      const revenueToday = round2(salesToday.reduce((acc, sale) => acc + (sale.total || 0), 0))
+      const avgTicketToday = totalSalesToday > 0 ? round2(revenueToday / totalSalesToday) : 0
+      const lowStockCount = lowStock.length
+      const savingsByPromotionsToday = round2(applications.reduce((acc, item) => acc + (item.amount_saved || 0), 0))
+
+      const mensajesContextuales: string[] = []
+      if (totalSalesToday === 0) {
+        mensajesContextuales.push('Aún no hay ventas registradas hoy. Enfócate en activar promociones tempranas.')
+      } else {
+        mensajesContextuales.push(`Llevas ${totalSalesToday} ventas hoy con un ticket promedio de L ${avgTicketToday.toFixed(2)}.`)
+      }
+
+      if (lowStockCount > 0) {
+        mensajesContextuales.push(`Hay ${lowStockCount} productos en bajo stock que podrían afectar ventas del turno.`)
+      }
+
+      if (savingsByPromotionsToday > 0) {
+        mensajesContextuales.push(`Las promociones han generado L ${savingsByPromotionsToday.toFixed(2)} en ahorro para clientes hoy.`)
+      }
+
+      const recomendacionesRapidas: string[] = []
+      if (lowStockCount > 0) {
+        recomendacionesRapidas.push('Prioriza reposición de productos críticos antes de la hora pico.')
+      }
+      if (avgTicketToday < 250) {
+        recomendacionesRapidas.push('Activa combos de mayor valor para subir el ticket promedio del día.')
+      }
+      if (savingsByPromotionsToday <= 0) {
+        recomendacionesRapidas.push('Aplica una promoción sugerida en caja para incrementar conversión y rotación.')
+      }
+      if (recomendacionesRapidas.length === 0) {
+        recomendacionesRapidas.push('Mantén el ritmo: analiza productos top y ajusta precios en los de menor salida.')
+      }
+
+      insights.value = {
+        generatedAt: new Date().toISOString(),
+        kpis: {
+          totalSalesToday,
+          revenueToday,
+          avgTicketToday,
+          lowStockCount,
+          savingsByPromotionsToday
+        },
+        mensajesContextuales,
+        recomendacionesRapidas
+      }
+      triggerRef(insights)
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Error al cargar insights de IA'
+    } finally {
+      loadingInsights.value = false
+    }
+  }
 
   // ==================== CONVERSACIONES ====================
 
@@ -151,6 +238,8 @@ export const useIAStore = defineStore('ia', () => {
     cargando.value = false
     enviando.value = false
     error.value = null
+    insights.value = null
+    loadingInsights.value = false
   }
 
   function actualizarSugerencias(
@@ -262,12 +351,15 @@ export const useIAStore = defineStore('ia', () => {
     cargando,
     enviando,
     error,
+    insights,
+    loadingInsights,
     // Acciones
     cargarConversaciones,
     seleccionarConversacion,
     nuevaConversacion,
     borrarConversacion,
     enviarMensaje,
+    cargarInsights,
     actualizarSugerenciasDesdeMensajes,
     $reset,
   }

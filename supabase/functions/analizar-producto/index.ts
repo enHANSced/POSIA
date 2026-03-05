@@ -23,6 +23,13 @@ type Suggestion = {
   min_stock?: number;
 };
 
+type DetectedProduct = {
+  label: string;
+  box_2d: [number, number, number, number]; // [ymin, xmin, ymax, xmax] 0-1000
+  estimated_price?: number;
+  confidence?: string;
+};
+
 type WebSource = {
   url: string;
   title: string;
@@ -209,6 +216,7 @@ Deno.serve(async (req: Request) => {
     const imageBase64 = typeof body?.imageBase64 === "string" ? body.imageBase64 : "";
     const mimeType = typeof body?.mimeType === "string" ? body.mimeType : "image/jpeg";
     const barcode = typeof body?.barcode === "string" ? body.barcode : "";
+    const mode = typeof body?.mode === "string" ? body.mode : "analyze";
     const categoriesFromClient = Array.isArray(body?.categories) ? body.categories.filter((c: unknown) => typeof c === "string") : [];
 
     if (!imageBase64) {
@@ -217,6 +225,75 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // ============ MODO RECOGNITION: Object Detection ============
+    if (mode === "recognition") {
+      const recognitionPrompt = `Eres un experto en productos retail. Detecta TODOS los productos visibles en la imagen.
+Para cada producto detectado, devuelve un objeto JSON con:
+- "label": nombre del producto en español (lo más específico posible, incluye marca si es visible)
+- "box_2d": [ymin, xmin, ymax, xmax] coordenadas normalizadas de 0 a 1000
+- "estimated_price": precio estimado en Lempiras (HNL) para el mercado hondureño. USA GOOGLE SEARCH para investigar precios reales.
+- "confidence": "high", "medium" o "low" según qué tan seguro estás de la identificación
+
+Responde SOLO con un array JSON válido. Ejemplo:
+[
+  {"label": "Coca-Cola 600ml", "box_2d": [100, 200, 500, 400], "estimated_price": 25, "confidence": "high"},
+  {"label": "Galletas Oreo", "box_2d": [50, 450, 350, 700], "estimated_price": 35, "confidence": "medium"}
+]
+
+Si no detectas productos, responde con un array vacío: []
+No incluyas texto adicional fuera del JSON.`;
+
+      // Intentar con Google Search para precios
+      let geminiCall = await callGemini(geminiApiKey, recognitionPrompt, imageBase64, mimeType, true);
+      if (!geminiCall.ok) {
+        geminiCall = await callGemini(geminiApiKey, recognitionPrompt, imageBase64, mimeType, false);
+      }
+
+      if (!geminiCall.ok) {
+        return new Response(
+          JSON.stringify({ error: "Error detectando productos con IA" }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const textoDeteccion = extraerTextoModelo(geminiCall.data!);
+      let detectedProducts: DetectedProduct[] = [];
+
+      try {
+        const parsed = JSON.parse(textoDeteccion);
+        if (Array.isArray(parsed)) {
+          detectedProducts = parsed;
+        }
+      } catch {
+        // Intentar extraer array JSON del texto
+        const match = textoDeteccion.match(/\[[\s\S]*\]/);
+        if (match) {
+          try {
+            detectedProducts = JSON.parse(match[0]);
+          } catch {
+            detectedProducts = [];
+          }
+        }
+      }
+
+      const webSources = extractWebSources(geminiCall.data!);
+      const searchQueries = geminiCall.data?.candidates?.[0]?.groundingMetadata?.webSearchQueries || [];
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          mode: "recognition",
+          detected_products: detectedProducts,
+          price_sources: webSources,
+          search_queries: searchQueries,
+          price_researched: webSources.length > 0,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ============ MODO ANALYZE (original) ============
 
     const categoriesSection = categoriesFromClient.length > 0
       ? `\nCategorías disponibles en el sistema: [${categoriesFromClient.join(", ")}]\nPara "category_name": revisa las categorías listadas arriba. Usa una de ellas SOLO si el producto realmente pertenece a esa categoría. NO fuerces un producto en una categoría incorrecta. Por ejemplo, frutas y verduras NO son "Abarrotes", carnes NO son "Lácteos". Si NINGUNA categoría de la lista es genuinamente apropiada para este producto, sugiere el nombre de una NUEVA categoría en español que sea adecuada (ej: "Frutas y Verduras", "Carnes y Embutidos", "Panadería", "Congelados", etc.). Preferir crear una categoría correcta antes que forzar una incorrecta.`

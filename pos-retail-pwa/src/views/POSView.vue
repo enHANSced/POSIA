@@ -3,16 +3,20 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useDisplay } from 'vuetify'
 import { useProductosStore } from '@/stores/productos'
 import { useCarritoStore, productSellsByWeight } from '@/stores/carrito'
+import { useDescuentosStore, type ApplicablePromotion } from '@/stores/descuentos'
 import { useAuthStore } from '@/stores/auth'
 import { procesarVenta } from '@/services/edge-functions'
-import type { ProcesarVentaResponse } from '@/services/edge-functions'
+import { reconocerProductosImagen } from '@/services/edge-functions'
+import type { ProcesarVentaResponse, DetectedProduct } from '@/services/edge-functions'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
+import { searchProducts } from '@/services/database'
 import FacturaRecibo from '@/components/pos/FacturaRecibo.vue'
 import type { FacturaData } from '@/components/pos/FacturaRecibo.vue'
 import { playSuccessBeep, playErrorBeep } from '@/composables/useScanSound'
 
 const productosStore = useProductosStore()
 const carritoStore = useCarritoStore()
+const descuentosStore = useDescuentosStore()
 const authStore = useAuthStore()
 const { mobile } = useDisplay()
 
@@ -30,6 +34,17 @@ const lastScanTime = ref(0)
 const showScanSnackbar = ref(false)
 const scanSnackbarText = ref('')
 let snackbarTimer: ReturnType<typeof setTimeout> | null = null
+
+// Scanner UI state
+const showManualEntry = ref(false)
+const torchOn = ref(false)
+const scanFlash = ref(false)
+let scanFlashTimer: ReturnType<typeof setTimeout> | null = null
+
+// === IA RECOGNITION STATE (integrado en escáner) ===
+const iaRecognitionLoading = ref(false)
+const iaRecognitionError = ref('')
+const iaDetectedProducts = ref<Array<DetectedProduct & { matchedProduct?: any; searching?: boolean }>>([])
 
 const BARCODE_FORMATS = [
   Html5QrcodeSupportedFormats.EAN_13,
@@ -88,7 +103,10 @@ let barcodeScanner: Html5Qrcode | null = null
 let unsubscribe: (() => void) | null = null
 
 onMounted(async () => {
-  await productosStore.fetchProducts()
+  await Promise.all([
+    productosStore.fetchProducts(),
+    descuentosStore.cargarPromocionesActivas()
+  ])
   unsubscribe = productosStore.subscribeToChanges()
 })
 
@@ -96,11 +114,17 @@ onUnmounted(() => {
   unsubscribe?.()
   clearScanner()
   if (snackbarTimer) clearTimeout(snackbarTimer)
+  if (scanFlashTimer) clearTimeout(scanFlashTimer)
 })
 
 watch(showScanner, async (open) => {
   scannerStatus.value = ''
   scannerError.value = ''
+  iaRecognitionError.value = ''
+  iaDetectedProducts.value = []
+  iaRecognitionLoading.value = false
+  showManualEntry.value = false
+  torchOn.value = false
   if (open) {
     await nextTick()
     await initScanner()
@@ -173,6 +197,44 @@ const productosFiltrados = computed(() => {
     p.sku?.toLowerCase().includes(query)
   )
 })
+
+const promocionesElegibles = computed(() => {
+  return descuentosStore.getApplicableDiscounts(carritoStore.items)
+})
+
+const promocionAplicadaId = computed(() => {
+  if (!carritoStore.appliedPromotion) return null
+  if (carritoStore.appliedPromotion.source === 'manual') return 'manual'
+  return `${carritoStore.appliedPromotion.source}:${carritoStore.appliedPromotion.id}`
+})
+
+function aplicarPromocion(promocion: ApplicablePromotion) {
+  carritoStore.applyPromotion({
+    id: promocion.id,
+    source: promocion.source,
+    type: promocion.type,
+    value: promocion.value,
+    amount: promocion.amount,
+    name: promocion.name
+  })
+}
+
+function limpiarPromocionAplicada() {
+  carritoStore.clearPromotion()
+}
+
+watch(promocionesElegibles, (actuales) => {
+  const aplicada = carritoStore.appliedPromotion
+  if (!aplicada || aplicada.source === 'manual') return
+
+  const sigueSiendoElegible = actuales.some(
+    promo => promo.id === aplicada.id && promo.source === aplicada.source
+  )
+
+  if (!sigueSiendoElegible) {
+    carritoStore.clearPromotion()
+  }
+}, { deep: true })
 
 function getStockPercent(producto: any): number {
   const stock = producto.stock ?? 0
@@ -268,6 +330,10 @@ async function handleBarcode(code: string) {
   scannerError.value = ''
   scannerStatus.value = `Producto agregado: ${product.name}`
   carritoStore.addItem(product)
+  // Flash de éxito en el viewfinder
+  if (scanFlashTimer) clearTimeout(scanFlashTimer)
+  scanFlash.value = true
+  scanFlashTimer = setTimeout(() => { scanFlash.value = false }, 700)
   // Snackbar visible en cualquier parte de la pantalla
   if (snackbarTimer) clearTimeout(snackbarTimer)
   scanSnackbarText.value = product.name
@@ -284,14 +350,34 @@ async function initScanner() {
       useBarCodeDetectorIfSupported: true,
     })
 
+    const isMobile = mobile.value
+    const qrboxSize = isMobile
+      ? { width: Math.min(window.innerWidth - 48, 260), height: 120 }
+      : { width: 300, height: 150 }
+
     await barcodeScanner.start(
       { facingMode: 'environment' },
-      { fps: 15, qrbox: { width: 300, height: 150 }, aspectRatio: 1.777778 },
+      { fps: 15, qrbox: qrboxSize, aspectRatio: isMobile ? 1.333 : 1.777778 },
       async (decodedText) => { await handleBarcode(decodedText) },
       () => {}
     )
   } catch {
     scannerError.value = 'No se pudo iniciar la cámara de escaneo.'
+  }
+}
+
+async function toggleTorch() {
+  try {
+    const video = document.querySelector('#pos-scanner-reader video') as HTMLVideoElement | null
+    if (!video?.srcObject) return
+    const track = (video.srcObject as MediaStream).getVideoTracks()[0]
+    if (!track) return
+    const caps = track.getCapabilities?.() as any
+    if (!caps?.torch) return
+    await track.applyConstraints?.({ advanced: [{ torch: !torchOn.value } as any] })
+    torchOn.value = !torchOn.value
+  } catch {
+    // Linterna no soportada en este dispositivo
   }
 }
 
@@ -414,6 +500,16 @@ async function finalizarVenta() {
       customer_name: customerName.value || undefined,
       customer_rtn: customerRtn.value || undefined,
       notes: extraData,
+      promotion: carritoStore.appliedPromotion
+        ? {
+          id: carritoStore.appliedPromotion.id,
+          source: carritoStore.appliedPromotion.source,
+          type: carritoStore.appliedPromotion.type,
+          value: carritoStore.appliedPromotion.value,
+          amount: carritoStore.appliedPromotion.amount,
+          name: carritoStore.appliedPromotion.name
+        }
+        : undefined,
     })
 
     lastSaleResponse.value = response
@@ -458,6 +554,100 @@ function closeCheckout() {
   // Si ya se procesó la venta, abrir factura automáticamente
   if (checkoutStep.value === 'done' && facturaData.value) {
     showFactura.value = true
+  }
+}
+
+// === IA RECOGNITION FUNCTIONS (integrado en escáner) ===
+async function captureAndRecognize() {
+  const video = document.querySelector('#pos-scanner-reader video') as HTMLVideoElement | null
+  if (!video || !video.videoWidth) {
+    iaRecognitionError.value = 'La cámara no está activa. Espera a que inicie.'
+    return
+  }
+
+  // Reset state
+  iaRecognitionError.value = ''
+  iaDetectedProducts.value = []
+  iaRecognitionLoading.value = true
+
+  // Capturar frame del video en vivo
+  const canvas = document.createElement('canvas')
+  canvas.width = video.videoWidth
+  canvas.height = video.videoHeight
+  canvas.getContext('2d')!.drawImage(video, 0, 0)
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+  const base64 = dataUrl.split(',')[1] ?? ''
+
+  try {
+    const response = await reconocerProductosImagen({
+      imageBase64: base64,
+      mimeType: 'image/jpeg',
+    })
+
+    if (response.detected_products.length === 0) {
+      iaRecognitionError.value = 'No se detectaron productos. Enfoca mejor el producto e intenta de nuevo.'
+      return
+    }
+
+    // Para cada producto detectado, buscar coincidencias en BD
+    iaDetectedProducts.value = response.detected_products.map(dp => ({
+      ...dp,
+      matchedProduct: null,
+      searching: true,
+    }))
+
+    // Buscar matches en paralelo
+    await Promise.all(
+      iaDetectedProducts.value.map(async (dp, idx) => {
+        try {
+          const results = await searchProducts(dp.label)
+          if (results.length > 0) {
+            const item = iaDetectedProducts.value[idx]
+            if (item) item.matchedProduct = results[0]
+          }
+        } catch {
+          // No match found
+        } finally {
+          const item = iaDetectedProducts.value[idx]
+          if (item) item.searching = false
+        }
+      })
+    )
+  } catch (err) {
+    iaRecognitionError.value = err instanceof Error ? err.message : 'Error al reconocer productos'
+  } finally {
+    iaRecognitionLoading.value = false
+  }
+}
+
+function iaAddToCart(product: any) {
+  if (!product || (product.stock ?? 0) <= 0) return
+  carritoStore.addItem(product)
+  lastAddedId.value = product.id
+  setTimeout(() => { lastAddedId.value = null }, 600)
+
+  // Snackbar
+  if (snackbarTimer) clearTimeout(snackbarTimer)
+  scanSnackbarText.value = product.name
+  showScanSnackbar.value = true
+  snackbarTimer = setTimeout(() => { showScanSnackbar.value = false }, 3000)
+}
+
+function iaGetConfidenceColor(confidence?: string): string {
+  switch (confidence) {
+    case 'high': return 'success'
+    case 'medium': return 'warning'
+    case 'low': return 'error'
+    default: return 'grey'
+  }
+}
+
+function iaGetConfidenceLabel(confidence?: string): string {
+  switch (confidence) {
+    case 'high': return 'Alta'
+    case 'medium': return 'Media'
+    case 'low': return 'Baja'
+    default: return 'N/A'
   }
 }
 
@@ -746,6 +936,40 @@ function formatHNL(value: number): string {
           <!-- Totales -->
           <div class="pa-4 pt-2">
             <div class="neo-totals-box pa-4">
+              <div class="mb-3">
+                <div class="d-flex align-center mb-2">
+                  <v-icon size="16" class="text-medium-emphasis mr-2">mdi-brightness-percent</v-icon>
+                  <span class="text-body-2 text-medium-emphasis">Promociones elegibles</span>
+                </div>
+
+                <div v-if="promocionesElegibles.length > 0" class="d-flex flex-wrap ga-2">
+                  <v-chip
+                    v-for="promo in promocionesElegibles"
+                    :key="`${promo.source}:${promo.id}`"
+                    size="small"
+                    variant="tonal"
+                    :color="promocionAplicadaId === `${promo.source}:${promo.id}` ? 'success' : 'primary'"
+                    class="cursor-pointer"
+                    @click="aplicarPromocion(promo)"
+                  >
+                    {{ promo.name }} · -{{ formatHNL(promo.amount) }}
+                  </v-chip>
+                </div>
+
+                <div v-else class="text-caption text-medium-emphasis">
+                  No hay promociones aplicables para este carrito.
+                </div>
+
+                <div v-if="carritoStore.appliedPromotion" class="d-flex align-center justify-space-between mt-2">
+                  <span class="text-caption text-success">
+                    Aplicada: {{ carritoStore.appliedPromotion.name }}
+                  </span>
+                  <v-btn size="x-small" variant="text" color="error" @click="limpiarPromocionAplicada">
+                    Quitar
+                  </v-btn>
+                </div>
+              </div>
+
               <div class="d-flex justify-space-between align-center mb-2">
                 <div class="d-flex align-center">
                   <v-icon size="16" class="text-medium-emphasis mr-2">mdi-receipt-text-outline</v-icon>
@@ -759,6 +983,13 @@ function formatHNL(value: number): string {
                   <span class="text-body-2 text-medium-emphasis">ISV (15%)</span>
                 </div>
                 <span class="text-body-2">{{ formatHNL(carritoStore.getTax()) }}</span>
+              </div>
+              <div v-if="carritoStore.discount > 0" class="d-flex justify-space-between align-center mb-3">
+                <div class="d-flex align-center">
+                  <v-icon size="16" class="text-success mr-2">mdi-sale</v-icon>
+                  <span class="text-body-2 text-success">Descuento</span>
+                </div>
+                <span class="text-body-2 text-success">-{{ formatHNL(carritoStore.discount) }}</span>
               </div>
               <v-divider class="mb-3" />
               <div class="d-flex justify-space-between align-center">
@@ -1125,40 +1356,277 @@ function formatHNL(value: number): string {
       @close="facturaData = null"
     />
 
-    <v-dialog v-model="showScanner" max-width="540">
-      <v-card>
-        <div class="pa-6 d-flex align-center">
-          <div class="neo-circle-sm mr-3">
-            <v-icon color="primary">mdi-barcode-scan</v-icon>
+    <!-- ===== Diálogo Escáner Mejorado ===== -->
+    <v-dialog
+      v-model="showScanner"
+      :fullscreen="mobile"
+      max-width="580"
+      scrollable
+      transition="dialog-bottom-transition"
+    >
+      <v-card
+        class="scanner-card d-flex flex-column"
+        :style="mobile ? 'height: 100dvh; border-radius: 0 !important;' : ''"
+      >
+        <!-- ── Toolbar ── -->
+        <div class="scanner-toolbar d-flex align-center px-4" :class="mobile ? 'scanner-toolbar--mobile' : 'pa-4'">
+          <v-btn icon variant="text" size="small" class="mr-2" @click="showScanner = false" aria-label="Cerrar escáner">
+            <v-icon>{{ mobile ? 'mdi-arrow-left' : 'mdi-close' }}</v-icon>
+          </v-btn>
+          <div class="neo-circle-sm mr-3" v-if="!mobile" style="background: linear-gradient(135deg,#4A7BF7,#6B93FF);">
+            <v-icon color="white" size="18">mdi-barcode-scan</v-icon>
           </div>
-          <h3 class="text-h6 font-weight-bold">Escanear producto</h3>
+          <div>
+            <p class="text-subtitle-1 font-weight-bold mb-0">Escanear producto</p>
+            <p v-if="mobile" class="text-caption text-medium-emphasis mb-0 mt-n1">Apunta al código de barras</p>
+          </div>
+          <v-spacer />
+          <!-- Linterna (solo móvil) -->
+          <v-btn
+            v-if="mobile"
+            icon
+            :variant="torchOn ? 'tonal' : 'text'"
+            :color="torchOn ? 'warning' : undefined"
+            size="small"
+            class="ml-1"
+            @click="toggleTorch"
+            aria-label="Activar/desactivar linterna"
+          >
+            <v-icon>{{ torchOn ? 'mdi-flashlight-off' : 'mdi-flashlight' }}</v-icon>
+          </v-btn>
         </div>
 
-        <v-card-text class="px-6 pb-2">
-          <div id="pos-scanner-reader" class="neo-flat pa-2 mb-3" style="min-height: 250px;" />
+        <v-divider />
 
-          <v-text-field
-            v-model="scannerManualCode"
-            label="Código de barras manual"
-            prepend-inner-icon="mdi-keyboard"
-            @keyup.enter="buscarManual"
-          />
+        <!-- ── Contenido scrollable ── -->
+        <v-card-text class="pa-0 flex-grow-1" style="overflow-y: auto;">
 
-          <v-alert v-if="scannerStatus" type="success" density="compact" class="mb-2">
-            {{ scannerStatus }}
-          </v-alert>
-          <v-alert v-if="scannerError" type="error" density="compact">
-            {{ scannerError }}
-          </v-alert>
+          <!-- Viewfinder wrapper -->
+          <div
+            class="scanner-viewfinder-wrapper"
+            :class="{ 'scanner-viewfinder-wrapper--mobile': mobile, 'scanner-flash': scanFlash }"
+          >
+            <!-- La librería monta el <video> aquí -->
+            <div id="pos-scanner-reader" class="scanner-reader" />
+
+            <!-- Marco decorativo con esquinas -->
+            <div class="scanner-frame" aria-hidden="true">
+              <span class="sc-corner sc-tl" />
+              <span class="sc-corner sc-tr" />
+              <span class="sc-corner sc-bl" />
+              <span class="sc-corner sc-br" />
+              <!-- Línea láser animada -->
+              <div class="scanner-laser" />
+            </div>
+
+            <!-- Overlay de éxito al escanear -->
+            <transition name="scan-success">
+              <div v-if="scanFlash" class="scanner-success-overlay" aria-live="polite">
+                <div class="scanner-success-badge">
+                  <v-icon color="white" size="32">mdi-check-circle</v-icon>
+                  <span class="text-body-2 font-weight-bold text-white ml-2">Agregado</span>
+                </div>
+              </div>
+            </transition>
+
+            <!-- Hint de qué apuntar -->
+            <div v-if="!scannerStatus && !scannerError && !scanFlash" class="scanner-hint" aria-hidden="true">
+              <v-icon size="14" class="mr-1" style="opacity:.7">mdi-barcode</v-icon>
+              Centra el código dentro del recuadro
+            </div>
+          </div>
+
+          <!-- ── Zona de resultados y acciones ── -->
+          <div class="pa-4 pb-2" :class="mobile ? '' : 'px-6'">
+
+            <!-- Feedback de escaneo -->
+            <v-slide-y-transition>
+              <div v-if="scannerStatus || scannerError" class="mb-3">
+                <v-alert
+                  v-if="scannerStatus"
+                  type="success"
+                  density="compact"
+                  variant="tonal"
+                  rounded="xl"
+                  class="scanner-status-alert"
+                >
+                  <template #prepend>
+                    <v-icon size="18">mdi-check-circle-outline</v-icon>
+                  </template>
+                  {{ scannerStatus }}
+                </v-alert>
+                <v-alert
+                  v-if="scannerError"
+                  type="error"
+                  density="compact"
+                  variant="tonal"
+                  rounded="xl"
+                  class="scanner-status-alert"
+                >
+                  <template #prepend>
+                    <v-icon size="18">mdi-alert-circle-outline</v-icon>
+                  </template>
+                  {{ scannerError }}
+                </v-alert>
+              </div>
+            </v-slide-y-transition>
+
+            <!-- ── Sección IA ── -->
+            <div class="scanner-ia-card mb-3">
+              <div class="d-flex align-center mb-2">
+                <div class="ia-icon-circle mr-3">
+                  <v-icon size="18" color="white">mdi-creation</v-icon>
+                </div>
+                <div class="flex-grow-1">
+                  <p class="text-body-2 font-weight-bold mb-0">Identificar con IA</p>
+                  <p class="text-caption text-medium-emphasis mb-0">Sin código de barras</p>
+                </div>
+                <v-btn
+                  color="secondary"
+                  variant="elevated"
+                  :size="mobile ? 'default' : 'small'"
+                  rounded="pill"
+                  :loading="iaRecognitionLoading"
+                  @click="captureAndRecognize"
+                  class="scanner-ia-btn"
+                >
+                  <v-icon start size="16">mdi-image-search</v-icon>
+                  Identificar
+                </v-btn>
+              </div>
+
+              <!-- IA Loading -->
+              <div v-if="iaRecognitionLoading" class="text-center py-3">
+                <div class="ia-pulse-wrapper mb-2">
+                  <v-progress-circular indeterminate color="secondary" size="40" width="3" />
+                  <div class="ia-pulse-ring" />
+                </div>
+                <p class="text-body-2 font-weight-medium mt-2">Analizando imagen...</p>
+                <p class="text-caption text-medium-emphasis">Buscando en inventario</p>
+              </div>
+
+              <!-- IA Error -->
+              <v-alert v-if="iaRecognitionError" type="warning" variant="tonal" density="compact" rounded="lg" class="mt-2">
+                {{ iaRecognitionError }}
+              </v-alert>
+
+              <!-- IA Productos detectados -->
+              <div v-if="!iaRecognitionLoading && iaDetectedProducts.length > 0" class="mt-2">
+                <p class="text-caption font-weight-bold text-success mb-2">
+                  <v-icon size="14" class="mr-1">mdi-check-circle</v-icon>
+                  {{ iaDetectedProducts.length }} producto{{ iaDetectedProducts.length > 1 ? 's' : '' }} detectado{{ iaDetectedProducts.length > 1 ? 's' : '' }}
+                </p>
+                <div class="d-flex flex-column" style="gap:8px;">
+                  <v-card
+                    v-for="(dp, idx) in iaDetectedProducts"
+                    :key="idx"
+                    class="neo-flat rounded-xl"
+                    variant="flat"
+                  >
+                    <v-card-text class="pa-3">
+                      <div class="d-flex align-center gap-2 mb-1">
+                        <div class="flex-grow-1 min-width-0">
+                          <p class="text-body-2 font-weight-bold text-truncate mb-0">{{ dp.label }}</p>
+                          <div class="d-flex align-center flex-wrap ga-1 mt-1">
+                            <v-chip :color="iaGetConfidenceColor(dp.confidence)" size="x-small" variant="tonal">
+                              {{ iaGetConfidenceLabel(dp.confidence) }}
+                            </v-chip>
+                            <span v-if="dp.estimated_price" class="text-caption text-medium-emphasis">
+                              ~<strong class="text-primary">L {{ dp.estimated_price?.toFixed(2) }}</strong>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div v-if="dp.searching" class="d-flex align-center mt-2">
+                        <v-progress-circular indeterminate size="14" width="2" color="primary" class="mr-2" />
+                        <span class="text-caption text-medium-emphasis">Buscando en inventario...</span>
+                      </div>
+
+                      <div v-else-if="dp.matchedProduct" class="mt-2">
+                        <div class="ia-match-row">
+                          <v-avatar size="40" rounded="lg" color="surface-variant" class="flex-shrink-0">
+                            <v-img v-if="dp.matchedProduct.image_url" :src="dp.matchedProduct.image_url" cover />
+                            <v-icon v-else size="20" color="medium-emphasis">mdi-package-variant</v-icon>
+                          </v-avatar>
+                          <div class="flex-grow-1 ml-2 min-width-0">
+                            <p class="text-body-2 font-weight-bold text-truncate mb-0">{{ dp.matchedProduct.name }}</p>
+                            <p class="text-caption text-medium-emphasis mb-0">
+                              L {{ dp.matchedProduct.price?.toFixed(2) }} · {{ dp.matchedProduct.stock ?? 0 }} en stock
+                            </p>
+                          </div>
+                          <v-btn
+                            color="success"
+                            size="small"
+                            variant="elevated"
+                            rounded="pill"
+                            :disabled="(dp.matchedProduct.stock ?? 0) <= 0"
+                            class="ml-2 flex-shrink-0"
+                            @click="iaAddToCart(dp.matchedProduct)"
+                          >
+                            <v-icon start size="14">mdi-cart-plus</v-icon>
+                            Agregar
+                          </v-btn>
+                        </div>
+                      </div>
+
+                      <v-alert v-else type="info" density="compact" variant="tonal" class="mt-2 text-caption" rounded="lg">
+                        No encontrado en inventario
+                      </v-alert>
+                    </v-card-text>
+                  </v-card>
+                </div>
+              </div>
+            </div>
+
+            <!-- ── Entrada manual (colapsable) ── -->
+            <div class="scanner-manual-section">
+              <button
+                class="scanner-manual-toggle"
+                @click="showManualEntry = !showManualEntry"
+                :aria-expanded="showManualEntry"
+              >
+                <v-icon size="16" class="mr-2">mdi-keyboard-outline</v-icon>
+                <span class="text-body-2">Ingresar código manualmente</span>
+                <v-spacer />
+                <v-icon size="16" :style="showManualEntry ? 'transform:rotate(180deg); transition:.2s' : 'transition:.2s'">
+                  mdi-chevron-down
+                </v-icon>
+              </button>
+
+              <v-expand-transition>
+                <div v-if="showManualEntry" class="pt-3 pb-1">
+                  <v-text-field
+                    v-model="scannerManualCode"
+                    label="Código de barras o SKU"
+                    prepend-inner-icon="mdi-barcode"
+                    variant="outlined"
+                    density="comfortable"
+                    rounded="lg"
+                    @keyup.enter="buscarManual"
+                    class="mb-2"
+                    autofocus
+                  />
+                  <v-btn
+                    color="primary"
+                    block
+                    variant="elevated"
+                    prepend-icon="mdi-magnify"
+                    rounded="lg"
+                    @click="buscarManual"
+                  >
+                    Buscar producto
+                  </v-btn>
+                </div>
+              </v-expand-transition>
+            </div>
+
+          </div>
         </v-card-text>
 
-        <v-card-actions class="pa-6 pt-2">
+        <!-- Botón cerrar (solo desktop) -->
+        <v-card-actions v-if="!mobile" class="pa-4 pt-2">
           <v-btn variant="text" @click="showScanner = false">Cerrar</v-btn>
-          <v-spacer />
-          <v-btn color="primary" @click="buscarManual">
-            <v-icon start>mdi-magnify</v-icon>
-            Buscar
-          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -1207,6 +1675,8 @@ function formatHNL(value: number): string {
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+
 
     <!-- === FAB móvil: muestra el carrito como bottom sheet === -->
     <div v-if="mobile && carritoStore.items.length > 0" class="mobile-cart-fab d-flex d-md-none">
@@ -1848,7 +2318,248 @@ function formatHNL(value: number): string {
   gap: 12px;
 }
 
+
+
 .pb-safe {
   padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+/* ===== Scanner Mejorado ===== */
+
+/* Toolbar */
+.scanner-toolbar {
+  min-height: 56px;
+  background: var(--neo-bg-alt);
+  flex-shrink: 0;
+}
+
+.scanner-toolbar--mobile {
+  min-height: 64px;
+  padding-top: max(12px, env(safe-area-inset-top)) !important;
+}
+
+/* Viewfinder wrapper */
+.scanner-viewfinder-wrapper {
+  position: relative;
+  background: #000;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.scanner-viewfinder-wrapper--mobile {
+  /* ~ 50% de la pantalla en móvil */
+  aspect-ratio: 4 / 3;
+  max-height: 52vh;
+}
+
+/* El div donde html5-qrcode monta el video */
+.scanner-reader {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.scanner-reader :deep(video) {
+  object-fit: cover !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.scanner-reader :deep(canvas) {
+  display: none !important;
+}
+
+/* Ocultar UI nativa de html5-qrcode */
+.scanner-reader :deep(#qr-shaded-region) {
+  border: none !important;
+}
+
+/* Marco con esquinas decorativas */
+.scanner-frame {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.sc-corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-color: rgba(255, 255, 255, 0.9);
+  border-style: solid;
+}
+
+.sc-tl { top: 20%; left: 12%; border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+.sc-tr { top: 20%; right: 12%; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
+.sc-bl { bottom: 20%; left: 12%; border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+.sc-br { bottom: 20%; right: 12%; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+
+/* Línea láser animada */
+@keyframes laser-scan {
+  0%   { top: 22%; opacity: 1; }
+  48%  { opacity: 1; }
+  50%  { top: 77%; opacity: 0.8; }
+  52%  { opacity: 1; }
+  100% { top: 22%; opacity: 1; }
+}
+
+.scanner-laser {
+  position: absolute;
+  left: 13%;
+  right: 13%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #ff3b3b, #ff6b6b, #ff3b3b, transparent);
+  border-radius: 2px;
+  box-shadow: 0 0 8px 2px rgba(255, 59, 59, 0.55);
+  animation: laser-scan 2.4s ease-in-out infinite;
+  top: 22%;
+  z-index: 3;
+}
+
+/* Hint de centrado */
+.scanner-hint {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(0, 0, 0, 0.45);
+  padding: 4px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+  z-index: 4;
+  backdrop-filter: blur(4px);
+}
+
+/* Flash verde de éxito */
+@keyframes scanner-flash-in {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.scanner-success-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(76, 175, 80, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  animation: scanner-flash-in 0.7s ease forwards;
+}
+
+.scanner-success-badge {
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 10px 20px;
+  border-radius: 40px;
+  backdrop-filter: blur(6px);
+}
+
+/* Flash border */
+.scanner-flash .scanner-viewfinder-wrapper {
+  outline: 3px solid rgb(var(--v-theme-success));
+}
+
+/* Transition del overlay */
+.scan-success-enter-active,
+.scan-success-leave-active {
+  transition: opacity 0.3s ease;
+}
+.scan-success-enter-from,
+.scan-success-leave-to {
+  opacity: 0;
+}
+
+/* Status alert */
+.scanner-status-alert {
+  font-size: 13px !important;
+}
+
+/* IA Card */
+.scanner-ia-card {
+  background: var(--neo-bg-alt);
+  border-radius: var(--neo-radius-sm);
+  box-shadow: var(--neo-flat);
+  padding: 14px 16px;
+}
+
+.ia-icon-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgb(var(--v-theme-secondary)), rgba(var(--v-theme-secondary), 0.7));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(var(--v-theme-secondary), 0.35);
+}
+
+.scanner-ia-btn {
+  letter-spacing: 0 !important;
+  min-width: 100px;
+}
+
+/* IA Loading pulse */
+.ia-pulse-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+@keyframes ia-pulse {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+.ia-pulse-ring {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--v-theme-secondary));
+  animation: ia-pulse 1.4s ease-out infinite;
+}
+
+/* IA match row */
+.ia-match-row {
+  display: flex;
+  align-items: center;
+  background: rgba(var(--v-theme-success), 0.07);
+  border: 1px solid rgba(var(--v-theme-success), 0.3);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+
+/* Manual entry collapsible */
+.scanner-manual-section {
+  border-radius: var(--neo-radius-sm);
+  background: var(--neo-bg);
+  box-shadow: var(--neo-flat);
+  padding: 10px 14px;
+}
+
+.scanner-manual-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  padding: 2px 0;
+  text-align: left;
+  gap: 0;
+}
+
+.scanner-manual-toggle:hover {
+  opacity: 0.8;
+}
+
+.min-width-0 {
+  min-width: 0;
 }
 </style>

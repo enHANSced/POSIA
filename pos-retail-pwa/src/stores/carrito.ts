@@ -2,6 +2,15 @@ import { defineStore } from 'pinia'
 import { shallowRef, computed, triggerRef } from 'vue'
 import type { Product, CartItem, SaleItem } from '@/types/supabase'
 
+export type AppliedPromotion = {
+  id?: string
+  source: 'discount' | 'combo' | 'manual'
+  type: 'percentage' | 'fixed'
+  value: number
+  amount: number
+  name: string
+}
+
 /** Determina si un producto se vende por peso (granel) */
 export function productSellsByWeight(product: Product): boolean {
   const meta = product.metadata && typeof product.metadata === 'object' && !Array.isArray(product.metadata)
@@ -14,6 +23,7 @@ export const useCarritoStore = defineStore('carrito', () => {
   // Estado - usar shallowRef para evitar recursión de tipos
   const items = shallowRef<CartItem[]>([])
   const discount = shallowRef(0)
+  const appliedPromotion = shallowRef<AppliedPromotion | null>(null)
   const paymentMethod = shallowRef<'efectivo' | 'tarjeta' | 'otro'>('efectivo')
 
   // Funciones getter
@@ -120,7 +130,34 @@ export const useCarritoStore = defineStore('carrito', () => {
   }
 
   function setDiscount(amount: number) {
-    discount.value = Math.max(0, Math.min(amount, getSubtotal()))
+    const safeAmount = Math.max(0, Math.min(amount, getSubtotal()))
+    discount.value = safeAmount
+    if (safeAmount <= 0) {
+      appliedPromotion.value = null
+      return
+    }
+
+    appliedPromotion.value = {
+      source: 'manual',
+      type: 'fixed',
+      value: safeAmount,
+      amount: safeAmount,
+      name: 'Descuento manual'
+    }
+  }
+
+  function applyPromotion(promotion: AppliedPromotion) {
+    const safeAmount = Math.max(0, Math.min(promotion.amount, getSubtotal()))
+    discount.value = safeAmount
+    appliedPromotion.value = {
+      ...promotion,
+      amount: safeAmount
+    }
+  }
+
+  function clearPromotion() {
+    discount.value = 0
+    appliedPromotion.value = null
   }
 
   function setPaymentMethod(method: 'efectivo' | 'tarjeta' | 'otro') {
@@ -130,6 +167,7 @@ export const useCarritoStore = defineStore('carrito', () => {
   function clearCart() {
     items.value = []
     discount.value = 0
+    appliedPromotion.value = null
     paymentMethod.value = 'efectivo'
   }
 
@@ -148,6 +186,7 @@ export const useCarritoStore = defineStore('carrito', () => {
     // Estado
     items,
     discount,
+    appliedPromotion,
     paymentMethod,
     // Getters
     getItemCount,
@@ -162,6 +201,8 @@ export const useCarritoStore = defineStore('carrito', () => {
     decrementItem,
     updateQuantity,
     setDiscount,
+    applyPromotion,
+    clearPromotion,
     setPaymentMethod,
     clearCart,
     getSaleItems

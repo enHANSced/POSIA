@@ -13,6 +13,14 @@ export interface ProcesarVentaRequest {
   notes?: string
   customer_name?: string
   customer_rtn?: string
+  promotion?: {
+    id?: string
+    source: 'discount' | 'combo' | 'manual'
+    type: 'percentage' | 'fixed'
+    value: number
+    amount: number
+    name?: string
+  }
 }
 
 export interface ProcesarVentaResponse {
@@ -45,6 +53,7 @@ export async function procesarVenta(request: ProcesarVentaRequest): Promise<Proc
       notes: request.notes ?? null,
       customer_name: request.customer_name ?? null,
       customer_rtn: request.customer_rtn ?? null,
+      promotion: request.promotion ?? null,
     },
   })
 
@@ -228,6 +237,52 @@ export async function analizarProductoImagen(
   }
 
   return data as AnalizarProductoImagenResponse
+}
+
+// ==================== RECONOCIMIENTO IA DE PRODUCTOS ====================
+
+export interface DetectedProduct {
+  label: string
+  box_2d: [number, number, number, number] // [ymin, xmin, ymax, xmax] 0-1000
+  estimated_price?: number
+  confidence?: 'high' | 'medium' | 'low'
+}
+
+export interface ReconocerProductosRequest {
+  imageBase64: string
+  mimeType: string
+}
+
+export interface ReconocerProductosResponse {
+  success: boolean
+  mode: 'recognition'
+  detected_products: DetectedProduct[]
+  price_sources?: WebSource[]
+  search_queries?: string[]
+  price_researched?: boolean
+}
+
+export async function reconocerProductosImagen(
+  request: ReconocerProductosRequest,
+): Promise<ReconocerProductosResponse> {
+  const { data, error } = await supabase.functions.invoke('analizar-producto', {
+    body: {
+      imageBase64: request.imageBase64,
+      mimeType: request.mimeType,
+      mode: 'recognition',
+    },
+  })
+
+  if (error) {
+    const msg = data?.error || error.message || 'Error al reconocer productos en imagen'
+    throw new Error(msg)
+  }
+
+  if (data?.error) {
+    throw new Error(data.error)
+  }
+
+  return data as ReconocerProductosResponse
 }
 
 // ==================== GESTIÓN DE EMPLEADOS (Edge Function) ====================

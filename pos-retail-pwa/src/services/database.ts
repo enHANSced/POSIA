@@ -1,11 +1,41 @@
 import { supabase } from './supabase'
-import type { Product, Sale, Category, SaleItem, LowStockProduct, Json, UserProfile } from '@/types/supabase'
+import type {
+  Product,
+  Sale,
+  Category,
+  SaleItem,
+  LowStockProduct,
+  Json,
+  UserProfile,
+  Discount,
+  Combo,
+  DiscountApplication
+} from '@/types/supabase'
 
 const PRODUCT_IMAGES_BUCKET = import.meta.env.VITE_SUPABASE_PRODUCT_IMAGES_BUCKET || 'product-images'
 
 export type SaleHistoryItem = Sale & {
   seller_name?: string | null
   seller_email?: string | null
+}
+
+export type DiscountApplicationHistoryItem = DiscountApplication & {
+  sales?: {
+    sale_number: string
+    created_at: string | null
+  } | null
+  discounts?: {
+    name: string
+  } | null
+  combos?: {
+    name: string
+  } | null
+}
+
+function isDateWithinWindow(validFrom: string | null, validUntil: string | null, targetDate: Date): boolean {
+  const fromOk = !validFrom || targetDate >= new Date(validFrom)
+  const untilOk = !validUntil || targetDate <= new Date(validUntil)
+  return fromOk && untilOk
 }
 
 // ==================== PRODUCTOS ====================
@@ -165,6 +195,149 @@ export async function deleteCategory(id: string): Promise<void> {
     .eq('id', id)
 
   if (error) throw error
+}
+
+// ==================== DESCUENTOS Y COMBOS ====================
+
+export async function fetchDiscounts(includeInactive: boolean = true): Promise<Discount[]> {
+  let query = supabase
+    .from('discounts')
+    .select('*')
+    .order('updated_at', { ascending: false })
+
+  if (!includeInactive) {
+    query = query.eq('active', true)
+  }
+
+  const { data, error } = await query
+
+  if (error) throw error
+  return (data || []) as Discount[]
+}
+
+export async function fetchActiveDiscounts(referenceDate: Date = new Date()): Promise<Discount[]> {
+  const discounts = await fetchDiscounts(false)
+  return discounts.filter(discount => isDateWithinWindow(discount.valid_from, discount.valid_until, referenceDate))
+}
+
+export async function createDiscount(
+  discount: Omit<Discount, 'id' | 'created_at' | 'updated_at'>
+): Promise<Discount> {
+  const { data, error } = await supabase
+    .from('discounts')
+    .insert([discount])
+    .select()
+    .single()
+
+  if (error) throw error
+  return data as Discount
+}
+
+export async function updateDiscount(
+  id: string,
+  updates: Partial<Omit<Discount, 'id' | 'created_at' | 'updated_at'>>
+): Promise<Discount> {
+  const { data, error } = await supabase
+    .from('discounts')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data as Discount
+}
+
+export async function deleteDiscount(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('discounts')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw error
+}
+
+export async function fetchCombos(includeInactive: boolean = true): Promise<Combo[]> {
+  let query = supabase
+    .from('combos')
+    .select('*')
+    .order('updated_at', { ascending: false })
+
+  if (!includeInactive) {
+    query = query.eq('active', true)
+  }
+
+  const { data, error } = await query
+
+  if (error) throw error
+  return (data || []) as Combo[]
+}
+
+export async function fetchActiveCombos(referenceDate: Date = new Date()): Promise<Combo[]> {
+  const combos = await fetchCombos(false)
+  return combos.filter(combo => isDateWithinWindow(combo.valid_from, combo.valid_until, referenceDate))
+}
+
+export async function createCombo(
+  combo: Omit<Combo, 'id' | 'created_at' | 'updated_at'>
+): Promise<Combo> {
+  const { data, error } = await supabase
+    .from('combos')
+    .insert([combo])
+    .select()
+    .single()
+
+  if (error) throw error
+  return data as Combo
+}
+
+export async function updateCombo(
+  id: string,
+  updates: Partial<Omit<Combo, 'id' | 'created_at' | 'updated_at'>>
+): Promise<Combo> {
+  const { data, error } = await supabase
+    .from('combos')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data as Combo
+}
+
+export async function deleteCombo(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('combos')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw error
+}
+
+export async function fetchDiscountApplications(
+  startDate?: string,
+  endDate?: string,
+  limit: number = 200
+): Promise<DiscountApplicationHistoryItem[]> {
+  let query = supabase
+    .from('discount_applications')
+    .select('*, sales(sale_number, created_at), discounts(name), combos(name)')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (startDate) {
+    query = query.gte('created_at', startDate)
+  }
+
+  if (endDate) {
+    query = query.lte('created_at', endDate)
+  }
+
+  const { data, error } = await query
+
+  if (error) throw error
+  return (data || []) as DiscountApplicationHistoryItem[]
 }
 
 // ==================== VENTAS ====================
@@ -337,8 +510,8 @@ export async function updateProductStock(
     p_quantity: quantity
   })
 
-  // Si no existe la función RPC, usar update directo
-  if (updateError && updateError.code === 'PGRST202') {
+  // Fallback a update directo si falla el RPC (función ausente, ambigua o error temporal)
+  if (updateError) {
     const { data: product } = await supabase
       .from('products')
       .select('stock')
@@ -346,15 +519,19 @@ export async function updateProductStock(
       .single()
 
     if (product) {
-      await supabase
+      const { error: directUpdateError } = await supabase
         .from('products')
         .update({ 
           stock: (product.stock || 0) + quantity,
           updated_at: new Date().toISOString()
         })
         .eq('id', productId)
+
+      if (!directUpdateError) {
+        return
+      }
     }
-  } else if (updateError) {
+
     throw updateError
   }
 }

@@ -6,8 +6,10 @@ import { useCarritoStore, productSellsByWeight } from '@/stores/carrito'
 import { useDescuentosStore, type ApplicablePromotion } from '@/stores/descuentos'
 import { useAuthStore } from '@/stores/auth'
 import { procesarVenta } from '@/services/edge-functions'
-import type { ProcesarVentaResponse } from '@/services/edge-functions'
+import { reconocerProductosImagen } from '@/services/edge-functions'
+import type { ProcesarVentaResponse, DetectedProduct } from '@/services/edge-functions'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
+import { searchProducts } from '@/services/database'
 import FacturaRecibo from '@/components/pos/FacturaRecibo.vue'
 import type { FacturaData } from '@/components/pos/FacturaRecibo.vue'
 import { playSuccessBeep, playErrorBeep } from '@/composables/useScanSound'
@@ -32,6 +34,11 @@ const lastScanTime = ref(0)
 const showScanSnackbar = ref(false)
 const scanSnackbarText = ref('')
 let snackbarTimer: ReturnType<typeof setTimeout> | null = null
+
+// === IA RECOGNITION STATE (integrado en escáner) ===
+const iaRecognitionLoading = ref(false)
+const iaRecognitionError = ref('')
+const iaDetectedProducts = ref<Array<DetectedProduct & { matchedProduct?: any; searching?: boolean }>>([])
 
 const BARCODE_FORMATS = [
   Html5QrcodeSupportedFormats.EAN_13,
@@ -106,6 +113,9 @@ onUnmounted(() => {
 watch(showScanner, async (open) => {
   scannerStatus.value = ''
   scannerError.value = ''
+  iaRecognitionError.value = ''
+  iaDetectedProducts.value = []
+  iaRecognitionLoading.value = false
   if (open) {
     await nextTick()
     await initScanner()
@@ -511,6 +521,100 @@ function closeCheckout() {
   // Si ya se procesó la venta, abrir factura automáticamente
   if (checkoutStep.value === 'done' && facturaData.value) {
     showFactura.value = true
+  }
+}
+
+// === IA RECOGNITION FUNCTIONS (integrado en escáner) ===
+async function captureAndRecognize() {
+  const video = document.querySelector('#pos-scanner-reader video') as HTMLVideoElement | null
+  if (!video || !video.videoWidth) {
+    iaRecognitionError.value = 'La cámara no está activa. Espera a que inicie.'
+    return
+  }
+
+  // Reset state
+  iaRecognitionError.value = ''
+  iaDetectedProducts.value = []
+  iaRecognitionLoading.value = true
+
+  // Capturar frame del video en vivo
+  const canvas = document.createElement('canvas')
+  canvas.width = video.videoWidth
+  canvas.height = video.videoHeight
+  canvas.getContext('2d')!.drawImage(video, 0, 0)
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+  const base64 = dataUrl.split(',')[1] ?? ''
+
+  try {
+    const response = await reconocerProductosImagen({
+      imageBase64: base64,
+      mimeType: 'image/jpeg',
+    })
+
+    if (response.detected_products.length === 0) {
+      iaRecognitionError.value = 'No se detectaron productos. Enfoca mejor el producto e intenta de nuevo.'
+      return
+    }
+
+    // Para cada producto detectado, buscar coincidencias en BD
+    iaDetectedProducts.value = response.detected_products.map(dp => ({
+      ...dp,
+      matchedProduct: null,
+      searching: true,
+    }))
+
+    // Buscar matches en paralelo
+    await Promise.all(
+      iaDetectedProducts.value.map(async (dp, idx) => {
+        try {
+          const results = await searchProducts(dp.label)
+          if (results.length > 0) {
+            const item = iaDetectedProducts.value[idx]
+            if (item) item.matchedProduct = results[0]
+          }
+        } catch {
+          // No match found
+        } finally {
+          const item = iaDetectedProducts.value[idx]
+          if (item) item.searching = false
+        }
+      })
+    )
+  } catch (err) {
+    iaRecognitionError.value = err instanceof Error ? err.message : 'Error al reconocer productos'
+  } finally {
+    iaRecognitionLoading.value = false
+  }
+}
+
+function iaAddToCart(product: any) {
+  if (!product || (product.stock ?? 0) <= 0) return
+  carritoStore.addItem(product)
+  lastAddedId.value = product.id
+  setTimeout(() => { lastAddedId.value = null }, 600)
+
+  // Snackbar
+  if (snackbarTimer) clearTimeout(snackbarTimer)
+  scanSnackbarText.value = product.name
+  showScanSnackbar.value = true
+  snackbarTimer = setTimeout(() => { showScanSnackbar.value = false }, 3000)
+}
+
+function iaGetConfidenceColor(confidence?: string): string {
+  switch (confidence) {
+    case 'high': return 'success'
+    case 'medium': return 'warning'
+    case 'low': return 'error'
+    default: return 'grey'
+  }
+}
+
+function iaGetConfidenceLabel(confidence?: string): string {
+  switch (confidence) {
+    case 'high': return 'Alta'
+    case 'medium': return 'Media'
+    case 'low': return 'Baja'
+    default: return 'N/A'
   }
 }
 
@@ -1219,7 +1323,7 @@ function formatHNL(value: number): string {
       @close="facturaData = null"
     />
 
-    <v-dialog v-model="showScanner" max-width="540">
+    <v-dialog v-model="showScanner" max-width="540" scrollable>
       <v-card>
         <div class="pa-6 d-flex align-center">
           <div class="neo-circle-sm mr-3">
@@ -1241,9 +1345,107 @@ function formatHNL(value: number): string {
           <v-alert v-if="scannerStatus" type="success" density="compact" class="mb-2">
             {{ scannerStatus }}
           </v-alert>
-          <v-alert v-if="scannerError" type="error" density="compact">
+          <v-alert v-if="scannerError" type="error" density="compact" class="mb-2">
             {{ scannerError }}
           </v-alert>
+
+          <!-- IA Recognition integrado -->
+          <v-divider class="my-3" />
+          <div class="d-flex align-center mb-3">
+            <v-icon size="18" color="secondary" class="mr-2">mdi-creation</v-icon>
+            <span class="text-body-2 text-medium-emphasis">¿Sin código de barras?</span>
+            <v-spacer />
+            <v-btn
+              color="secondary"
+              variant="tonal"
+              size="small"
+              :loading="iaRecognitionLoading"
+              @click="captureAndRecognize"
+            >
+              <v-icon start size="16">mdi-image-search</v-icon>
+              Identificar con IA
+            </v-btn>
+          </div>
+
+          <!-- IA Loading -->
+          <div v-if="iaRecognitionLoading" class="text-center py-4">
+            <v-progress-circular indeterminate color="secondary" size="36" class="mb-2" />
+            <p class="text-body-2 font-weight-medium">Analizando lo que ve la cámara...</p>
+            <p class="text-caption text-medium-emphasis">Detectando productos y buscando precios</p>
+          </div>
+
+          <!-- IA Error -->
+          <v-alert v-if="iaRecognitionError" type="warning" variant="tonal" density="compact" class="mb-3">
+            {{ iaRecognitionError }}
+          </v-alert>
+
+          <!-- IA Productos detectados -->
+          <div v-if="!iaRecognitionLoading && iaDetectedProducts.length > 0">
+            <p class="text-subtitle-2 font-weight-bold mb-2">
+              <v-icon size="16" color="success" class="mr-1">mdi-check-circle</v-icon>
+              {{ iaDetectedProducts.length }} producto{{ iaDetectedProducts.length > 1 ? 's' : '' }} detectado{{ iaDetectedProducts.length > 1 ? 's' : '' }}
+            </p>
+
+            <div class="d-flex flex-column" style="gap: 8px;">
+              <v-card
+                v-for="(dp, idx) in iaDetectedProducts"
+                :key="idx"
+                class="neo-flat rounded-lg"
+                variant="flat"
+              >
+                <v-card-text class="pa-3">
+                  <div class="d-flex align-center mb-1">
+                    <div class="flex-grow-1">
+                      <div class="text-body-2 font-weight-bold">{{ dp.label }}</div>
+                      <div class="d-flex align-center ga-2 mt-1">
+                        <v-chip :color="iaGetConfidenceColor(dp.confidence)" size="x-small" variant="tonal">
+                          {{ iaGetConfidenceLabel(dp.confidence) }}
+                        </v-chip>
+                        <span v-if="dp.estimated_price" class="text-caption text-medium-emphasis">
+                          ~<strong class="text-primary">L {{ dp.estimated_price?.toFixed(2) }}</strong>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div v-if="dp.searching" class="d-flex align-center mt-2">
+                    <v-progress-circular indeterminate size="14" width="2" color="primary" class="mr-2" />
+                    <span class="text-caption text-medium-emphasis">Buscando en inventario...</span>
+                  </div>
+
+                  <div v-else-if="dp.matchedProduct" class="mt-2">
+                    <v-card variant="outlined" class="rounded-lg" color="success" density="compact">
+                      <v-card-text class="pa-2 d-flex align-center">
+                        <v-avatar size="32" rounded="lg" class="mr-2" color="surface-variant">
+                          <v-img v-if="dp.matchedProduct.image_url" :src="dp.matchedProduct.image_url" cover />
+                          <v-icon v-else size="16" color="medium-emphasis">mdi-package-variant</v-icon>
+                        </v-avatar>
+                        <div class="flex-grow-1">
+                          <div class="text-caption font-weight-bold">{{ dp.matchedProduct.name }}</div>
+                          <div class="text-caption text-medium-emphasis">
+                            L {{ dp.matchedProduct.price?.toFixed(2) }} · Stock: {{ dp.matchedProduct.stock ?? 0 }}
+                          </div>
+                        </div>
+                        <v-btn
+                          color="success"
+                          size="x-small"
+                          variant="elevated"
+                          :disabled="(dp.matchedProduct.stock ?? 0) <= 0"
+                          @click="iaAddToCart(dp.matchedProduct)"
+                        >
+                          <v-icon size="14">mdi-cart-plus</v-icon>
+                        </v-btn>
+                      </v-card-text>
+                    </v-card>
+                  </div>
+
+                  <v-alert v-else type="info" density="compact" variant="tonal" class="mt-2 text-caption">
+                    No encontrado en inventario
+                  </v-alert>
+                </v-card-text>
+              </v-card>
+            </div>
+          </div>
         </v-card-text>
 
         <v-card-actions class="pa-6 pt-2">
@@ -1301,6 +1503,8 @@ function formatHNL(value: number): string {
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+
 
     <!-- === FAB móvil: muestra el carrito como bottom sheet === -->
     <div v-if="mobile && carritoStore.items.length > 0" class="mobile-cart-fab d-flex d-md-none">
@@ -1941,6 +2145,8 @@ function formatHNL(value: number): string {
 .gap-3 {
   gap: 12px;
 }
+
+
 
 .pb-safe {
   padding-bottom: max(16px, env(safe-area-inset-bottom));

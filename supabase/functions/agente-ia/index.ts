@@ -77,6 +77,11 @@ type WebSource = {
   title: string;
 };
 
+type GroundingSupport = {
+  text: string;
+  sourceIndices: number[];
+};
+
 type GeminiResponse = {
   candidates?: Array<{
     content?: {
@@ -655,6 +660,7 @@ function containsUrls(mensaje: string): boolean {
 
 /**
  * Extrae fuentes web del metadata de grounding de Gemini.
+ * Mantiene el orden de los chunks para que los índices coincidan con groundingSupports.
  */
 function extractWebSources(candidate: GeminiResponse["candidates"] | null | undefined): WebSource[] {
   if (!candidate || candidate.length === 0) return [];
@@ -663,7 +669,7 @@ function extractWebSources(candidate: GeminiResponse["candidates"] | null | unde
   const sources: WebSource[] = [];
   const seenUrls = new Set<string>();
 
-  // Extraer de groundingChunks
+  // Extraer de groundingChunks — preservar orden para mapeo de índices
   const chunks = first.groundingMetadata?.groundingChunks;
   if (Array.isArray(chunks)) {
     for (const chunk of chunks) {
@@ -693,6 +699,59 @@ function extractWebSources(candidate: GeminiResponse["candidates"] | null | unde
   }
 
   return sources;
+}
+
+/**
+ * Inserta marcadores de cita [n] en el texto de la respuesta usando groundingSupports.
+ * Los marcadores se insertan al final de cada segmento soportado por fuentes.
+ */
+function addInlineCitations(
+  text: string,
+  candidates: GeminiResponse["candidates"] | null | undefined,
+): string {
+  if (!candidates || candidates.length === 0) return text;
+
+  const supports = candidates[0].groundingMetadata?.groundingSupports;
+  const chunks = candidates[0].groundingMetadata?.groundingChunks;
+  if (!supports || !chunks || supports.length === 0) return text;
+
+  // Procesar en orden inverso para no alterar índices previos
+  const sorted = [...supports].sort(
+    (a, b) => (b.segment?.endIndex ?? 0) - (a.segment?.endIndex ?? 0),
+  );
+
+  let result = text;
+  for (const support of sorted) {
+    const endIdx = support.segment?.endIndex;
+    const indices = support.groundingChunkIndices;
+    if (endIdx == null || !Array.isArray(indices) || indices.length === 0) continue;
+
+    // Deduplicar índices y construir string de citas como [1][2]
+    const uniqueIdxs = [...new Set(indices)].sort((a, b) => a - b);
+    const citations = uniqueIdxs.map((i) => `[${i + 1}]`).join("");
+    result = result.slice(0, endIdx) + citations + result.slice(endIdx);
+  }
+
+  return result;
+}
+
+/**
+ * Extrae los datos de groundingSupports para enviarlo al frontend.
+ */
+function extractGroundingSupports(
+  candidates: GeminiResponse["candidates"] | null | undefined,
+): GroundingSupport[] {
+  if (!candidates || candidates.length === 0) return [];
+
+  const supports = candidates[0].groundingMetadata?.groundingSupports;
+  if (!Array.isArray(supports)) return [];
+
+  return supports
+    .filter((s) => s.segment?.text && s.groundingChunkIndices?.length)
+    .map((s) => ({
+      text: s.segment!.text!,
+      sourceIndices: [...new Set(s.groundingChunkIndices!)].sort((a, b) => a - b),
+    }));
 }
 
 /**
@@ -1010,6 +1069,7 @@ Deno.serve(async (req: Request) => {
     let aiMessage: string;
     let webSources: WebSource[] = [];
     let searchQueries: string[] = [];
+    let groundingSupports: GroundingSupport[] = [];
 
     if (!geminiRes.ok) {
       const errorText = await geminiRes.text();
@@ -1026,12 +1086,22 @@ Deno.serve(async (req: Request) => {
           .join("")
           .trim() || "No pude generar una respuesta en este momento.";
 
-      // Extraer fuentes web y consultas de búsqueda
+      // Extraer fuentes web, consultas de búsqueda y soporte de grounding
       webSources = extractWebSources(geminiData.candidates);
       searchQueries = extractSearchQueries(geminiData.candidates);
+      groundingSupports = extractGroundingSupports(geminiData.candidates);
+
+      // Insertar marcadores de cita inline [1], [2]... en el texto
+      if (webSources.length > 0) {
+        aiMessage = addInlineCitations(aiMessage, geminiData.candidates);
+      }
 
       if (webSources.length > 0 || searchQueries.length > 0) {
-        console.log("Web search used:", { searchQueries, sourcesCount: webSources.length });
+        console.log("Web search used:", {
+          searchQueries,
+          sourcesCount: webSources.length,
+          supportsCount: groundingSupports.length,
+        });
       }
     }
 
@@ -1072,6 +1142,7 @@ Deno.serve(async (req: Request) => {
         follow_up_suggestions: followUpSuggestions,
         web_sources: webSources,
         search_queries: searchQueries,
+        grounding_supports: groundingSupports,
         used_web_search: useWebSearch && webSources.length > 0,
       }),
       {

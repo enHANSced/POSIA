@@ -55,6 +55,7 @@ const panelMensajes = ref<HTMLElement | null>(null)
 const mostrarHistorial = ref(false)
 const tabActiva = ref<'chat' | 'insights'>('chat')
 const expandedSources = ref<Record<string, boolean>>({})
+const mostrarSugerencias = ref(true)
 
 // ── Typewriter effect ──────────────────────────────────────────────────────
 const streamingMsgIdx = ref<number | null>(null)
@@ -357,10 +358,18 @@ watch(
           <v-icon>mdi-chevron-right</v-icon>
         </v-btn>
 
+        <div class="ia-header-avatar mr-2">
+          <span class="ia-header-face">
+            <span class="ia-header-eye left"></span>
+            <span class="ia-header-eye right"></span>
+          </span>
+        </div>
         <div class="d-flex flex-column">
-          <h3 class="text-subtitle-2 font-weight-bold">Asistente IA</h3>
-          <p class="text-caption text-medium-emphasis" style="font-size: 0.7rem !important; line-height: 1;">
-            {{ iaStore.conversacionActualId ? 'Conversación activa' : 'Nueva consulta' }}
+          <h3 class="text-subtitle-2 font-weight-bold">POSIA</h3>
+          <p class="text-caption" style="font-size: 0.68rem !important; line-height: 1;">
+            <span v-if="iaStore.enviando" class="ia-status-dot thinking"></span>
+            <span v-else class="ia-status-dot online"></span>
+            {{ iaStore.enviando ? 'Pensando...' : iaStore.conversacionActualId ? 'Listo para ayudarte' : '¡Preguntame lo que sea!' }}
           </p>
         </div>
 
@@ -383,17 +392,27 @@ watch(
         </v-btn>
       </div>
 
-      <v-divider class="flex-shrink-0" />
+      <div class="ia-tab-bar flex-shrink-0 mx-3 my-2">
+        <button
+          class="ia-tab-btn"
+          :class="{ active: tabActiva === 'chat' }"
+          @click="tabActiva = 'chat'"
+        >
+          <v-icon size="14" class="mr-1">mdi-chat-processing-outline</v-icon>
+          Chat
+        </button>
+        <button
+          class="ia-tab-btn"
+          :class="{ active: tabActiva === 'insights' }"
+          @click="tabActiva = 'insights'"
+        >
+          <v-icon size="14" class="mr-1">mdi-chart-box-outline</v-icon>
+          Insights
+        </button>
+      </div>
 
-      <v-tabs v-model="tabActiva" density="compact" class="px-2 pt-1 flex-shrink-0">
-        <v-tab value="chat" size="small">Chat</v-tab>
-        <v-tab value="insights" size="small">Insights</v-tab>
-      </v-tabs>
-
-      <v-divider class="flex-shrink-0" />
-
-      <v-window v-model="tabActiva" class="flex-grow-1 overflow-hidden">
-        <v-window-item value="chat" class="h-100">
+      <v-window v-model="tabActiva" class="flex-grow-1 overflow-hidden ia-window">
+        <v-window-item value="chat" class="ia-window-item">
           <v-expand-transition>
             <div v-if="mostrarHistorial && conversaciones.length > 0" class="flex-shrink-0 px-3 pt-3 pb-1 bg-surface-lighten-1">
               <div class="d-flex align-center justify-space-between mb-2 px-1">
@@ -432,14 +451,28 @@ watch(
             </div>
           </v-expand-transition>
 
-          <div class="d-flex flex-column flex-grow-1 overflow-hidden px-3 pb-3 pt-2" style="height: calc(100vh - 145px);">
-            <div ref="panelMensajes" class="mensajes-panel neo-flat pa-3 mb-3 flex-grow-1 d-flex flex-column" style="min-height: 0;">
+          <div class="ia-chat-content d-flex flex-column flex-grow-1 overflow-hidden px-3 pb-3 pt-2">
+            <div ref="panelMensajes" class="mensajes-panel neo-flat pa-3 mb-2 flex-grow-1 d-flex flex-column" style="min-height: 0;">
               <div v-if="mensajes.length === 0" class="ia-empty-state my-auto">
-                <div class="ia-empty-icon-wrap mb-3">
-                  <v-icon size="36" color="primary">mdi-robot-happy-outline</v-icon>
+                <div class="ia-robot-container mb-4">
+                  <div class="ia-robot-body">
+                    <div class="ia-robot-antenna">
+                      <div class="ia-robot-antenna-ball"></div>
+                    </div>
+                    <div class="ia-robot-head">
+                      <div class="ia-robot-eye left"></div>
+                      <div class="ia-robot-eye right"></div>
+                      <div class="ia-robot-mouth"></div>
+                    </div>
+                    <div class="ia-robot-torso">
+                      <div class="ia-robot-chest-light"></div>
+                    </div>
+                  </div>
+                  <div class="ia-robot-shadow"></div>
                 </div>
-                <p class="text-body-2 font-weight-medium mb-1">¿En qué puedo ayudarte?</p>
-                <p class="text-caption text-medium-emphasis">Hacé preguntas sobre ventas, inventario, precios o cualquier tema de tu negocio.</p>
+                <p class="text-body-1 font-weight-bold mb-1" style="color: rgb(var(--v-theme-primary));">¡Hola! Soy POSIA</p>
+                <p class="text-body-2 text-medium-emphasis mb-2">Tu asistente inteligente de negocio</p>
+                <p class="text-caption text-medium-emphasis" style="max-width: 280px; margin: 0 auto;">Preguntame sobre ventas, inventario, precios o cualquier tema de tu negocio. ¡Estoy aquí para ayudarte!</p>
               </div>
 
               <div class="d-flex flex-column justify-end" :class="{ 'flex-grow-1': mensajes.length > 0 }">
@@ -450,8 +483,11 @@ watch(
                   :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
                 >
                   <div v-if="msg.role === 'assistant'" class="mr-2 mt-1 flex-shrink-0">
-                    <div class="ia-avatar">
-                      <v-icon size="15" color="primary">mdi-robot-happy</v-icon>
+                    <div class="ia-avatar" :class="{ 'ia-avatar-new': streamingMsgIdx === index }">
+                      <span class="ia-mini-face">
+                        <span class="ia-mini-eye left" :class="{ blink: streamingMsgIdx === index }"></span>
+                        <span class="ia-mini-eye right" :class="{ blink: streamingMsgIdx === index }"></span>
+                      </span>
                     </div>
                   </div>
 
@@ -557,9 +593,12 @@ watch(
 
                 <div v-if="iaStore.enviando" class="mb-3 d-flex justify-start align-center">
                   <div class="mr-2 flex-shrink-0">
-                    <v-avatar size="28" color="primary" variant="tonal">
-                      <v-icon size="16">mdi-robot-happy</v-icon>
-                    </v-avatar>
+                    <div class="ia-avatar ia-avatar-thinking">
+                      <span class="ia-mini-face">
+                        <span class="ia-mini-eye left thinking"></span>
+                        <span class="ia-mini-eye right thinking"></span>
+                      </span>
+                    </div>
                   </div>
                   <div class="mensaje-bubble mensaje-ia bg-surface px-4 py-3">
                     <div class="typing-indicator">
@@ -570,19 +609,36 @@ watch(
               </div>
             </div>
 
-            <div class="mb-3 flex-shrink-0" v-if="(mensajes.length === 0 || promptSugeridos.length > 0) && streamingMsgIdx === null">
-              <div class="text-caption text-medium-emphasis mb-2 px-1">Sugerencias rápidas</div>
-              <div class="d-flex flex-wrap ga-2">
-                <button
-                  v-for="sugerencia in promptSugeridos"
-                  :key="sugerencia"
-                  class="neo-suggestion-btn text-caption text-primary cursor-pointer px-3 py-2"
-                  :disabled="iaStore.enviando"
-                  @click="enviarSugerencia(sugerencia)"
-                >
-                  {{ sugerencia }}
-                </button>
+            <div class="flex-shrink-0" v-if="(mensajes.length === 0 || promptSugeridos.length > 0) && streamingMsgIdx === null">
+              <div
+                class="ia-suggestions-toggle text-caption d-flex align-center w-100 px-2 py-1 mb-1"
+                role="button"
+                tabindex="0"
+                @click.stop="mostrarSugerencias = !mostrarSugerencias"
+                @keydown.enter.stop="mostrarSugerencias = !mostrarSugerencias"
+              >
+                <span class="ia-sparkle mr-1">✦</span>
+                <span class="text-medium-emphasis">Sugerencias rápidas</span>
+                <span class="flex-grow-1"></span>
+                <v-icon size="14" class="text-medium-emphasis ia-chevron" :class="{ open: mostrarSugerencias }">
+                  mdi-chevron-down
+                </v-icon>
               </div>
+              <v-expand-transition>
+                <div v-if="mostrarSugerencias">
+                  <div class="d-flex flex-wrap ga-2 pb-2">
+                    <button
+                      v-for="sugerencia in promptSugeridos"
+                      :key="sugerencia"
+                      class="neo-suggestion-btn text-caption text-primary cursor-pointer px-3 py-2"
+                      :disabled="iaStore.enviando"
+                      @click="enviarSugerencia(sugerencia)"
+                    >
+                      {{ sugerencia }}
+                    </button>
+                  </div>
+                </div>
+              </v-expand-transition>
             </div>
 
             <v-alert v-if="iaStore.error" type="error" density="compact" class="mb-2 flex-shrink-0" variant="tonal">
@@ -624,8 +680,8 @@ watch(
           </div>
         </v-window-item>
 
-        <v-window-item value="insights" class="h-100">
-          <div class="pa-3" style="height: calc(100vh - 145px); overflow: hidden;">
+        <v-window-item value="insights" class="ia-window-item">
+          <div class="ia-insights-content pa-3">
             <InsightsIAPanel />
           </div>
         </v-window-item>
@@ -635,6 +691,145 @@ watch(
 </template>
 
 <style scoped>
+/* ══════════════════════════════════════════════════════════════════
+   POSIA – Robot Carismático · Estilo Neomórfico
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Tab bar neomórfica ───────────────────────────────────────────── */
+.ia-tab-bar {
+  display: flex;
+  gap: 6px;
+  border-radius: var(--neo-radius-sm);
+  background: var(--neo-bg-alt);
+  box-shadow: var(--neo-pressed-sm);
+  padding: 4px;
+}
+
+.ia-tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 12px;
+  border: none;
+  border-radius: var(--neo-radius-xs);
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--neo-transition);
+  user-select: none;
+}
+
+.ia-tab-btn.active {
+  background: var(--neo-bg);
+  box-shadow: var(--neo-raised-sm);
+  color: rgb(var(--v-theme-primary));
+  font-weight: 600;
+}
+
+.ia-tab-btn:not(.active):hover {
+  color: rgba(var(--v-theme-on-surface), 0.8);
+  background: rgba(var(--v-theme-primary), 0.04);
+}
+
+/* ── Layout del chat (flex correcto sin alturas fijas) ─────────────── */
+.ia-chat-content {
+  height: 0;
+  min-height: 0;
+}
+
+/* ── Layout del insights ──────────────────────────────────────────── */
+.ia-insights-content {
+  height: 0;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ── v-window flex layout (ocupar toda la altura disponible) ──────── */
+.ia-window {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ia-window :deep(.v-window__container) {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ia-window-item {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Header avatar (mini robot) ───────────────────────────────────── */
+.ia-header-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(74, 123, 247, 0.15), rgba(74, 123, 247, 0.06));
+  box-shadow: var(--neo-raised-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.ia-header-face {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  position: relative;
+}
+
+.ia-header-eye {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgb(var(--v-theme-primary));
+  animation: headerBlink 3.5s infinite;
+}
+
+.ia-header-eye.right { animation-delay: 0.1s; }
+
+@keyframes headerBlink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+
+.ia-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.ia-status-dot.online {
+  background: #4caf50;
+  box-shadow: 0 0 4px rgba(76, 175, 80, 0.5);
+}
+
+.ia-status-dot.thinking {
+  background: rgb(var(--v-theme-primary));
+  animation: statusPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
 /* ── Panel de mensajes ────────────────────────────────────────────── */
 .mensajes-panel {
   overflow-y: auto;
@@ -663,40 +858,238 @@ watch(
   border-bottom-left-radius: 5px;
   box-shadow: var(--neo-raised-sm);
   border: 1px solid rgba(255, 255, 255, 0.55);
-  /* Full width for IA responses (they can contain tables, long text) */
   display: block;
   max-width: 100%;
   width: 100%;
   overflow: hidden;
 }
 
-/* ── Avatar IA pequeño ────────────────────────────────────────────── */
+/* ── Avatar IA pequeño (con ojitos) ───────────────────────────────── */
 .ia-avatar {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: rgba(74, 123, 247, 0.12);
+  background: linear-gradient(135deg, rgba(74, 123, 247, 0.15), rgba(74, 123, 247, 0.06));
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: var(--neo-raised-sm);
+  transition: all 0.3s ease;
 }
 
-/* ── Estado vacío ─────────────────────────────────────────────────── */
+.ia-avatar-new {
+  animation: avatarPop 0.4s ease-out;
+}
+
+.ia-avatar-thinking {
+  animation: avatarThink 1.5s ease-in-out infinite;
+}
+
+@keyframes avatarPop {
+  0% { transform: scale(0.7); }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+@keyframes avatarThink {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  25% { transform: scale(1.05) rotate(-3deg); }
+  75% { transform: scale(1.05) rotate(3deg); }
+}
+
+.ia-mini-face {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ia-mini-eye {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgb(var(--v-theme-primary));
+  transition: all 0.2s ease;
+}
+
+.ia-mini-eye.blink {
+  animation: miniBlink 0.8s ease-in-out infinite;
+}
+
+.ia-mini-eye.thinking {
+  animation: thinkEyes 1.5s ease-in-out infinite;
+}
+
+@keyframes miniBlink {
+  0%, 70%, 100% { transform: scaleY(1); }
+  80% { transform: scaleY(0.1); }
+}
+
+@keyframes thinkEyes {
+  0%, 100% { transform: translateX(0); }
+  30% { transform: translateX(1px) scaleY(1.2); }
+  70% { transform: translateX(-1px) scaleY(1.2); }
+}
+
+/* ── Estado vacío – Robot CSS carismático ──────────────────────────── */
 .ia-empty-state {
   text-align: center;
   padding: 24px 16px;
 }
 
-.ia-empty-icon-wrap {
-  width: 64px;
-  height: 64px;
+.ia-robot-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: robotFloat 3s ease-in-out infinite;
+}
+
+@keyframes robotFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+.ia-robot-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Antena */
+.ia-robot-antenna {
+  width: 2px;
+  height: 14px;
+  background: rgb(var(--v-theme-primary));
+  opacity: 0.6;
+  border-radius: 2px;
+  position: relative;
+}
+
+.ia-robot-antenna-ball {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: rgba(74, 123, 247, 0.1);
-  display: inline-flex;
+  background: rgb(var(--v-theme-primary));
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  animation: antennaPulse 2s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(74, 123, 247, 0.4);
+}
+
+@keyframes antennaPulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(74, 123, 247, 0.3); transform: translateX(-50%) scale(1); }
+  50% { box-shadow: 0 0 12px rgba(74, 123, 247, 0.6); transform: translateX(-50%) scale(1.2); }
+}
+
+/* Cabeza */
+.ia-robot-head {
+  width: 64px;
+  height: 48px;
+  border-radius: 18px 18px 14px 14px;
+  background: var(--neo-bg);
+  box-shadow: var(--neo-raised);
+  display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: var(--neo-raised);
+  gap: 14px;
+  position: relative;
+  margin-top: -1px;
+}
+
+/* Ojos del robot */
+.ia-robot-eye {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgb(var(--v-theme-primary));
+  position: relative;
+  animation: robotBlink 4s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(74, 123, 247, 0.3);
+}
+
+.ia-robot-eye.right {
+  animation-delay: 0.15s;
+}
+
+.ia-robot-eye::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+@keyframes robotBlink {
+  0%, 42%, 48%, 100% { transform: scaleY(1); }
+  45% { transform: scaleY(0.1); }
+}
+
+/* Boca (sonrisa) */
+.ia-robot-mouth {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 8px;
+  border: 2px solid rgb(var(--v-theme-primary));
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  opacity: 0.5;
+  animation: robotSmile 4s ease-in-out infinite;
+}
+
+@keyframes robotSmile {
+  0%, 100% { width: 16px; opacity: 0.5; }
+  50% { width: 20px; opacity: 0.7; }
+}
+
+/* Torso */
+.ia-robot-torso {
+  width: 48px;
+  height: 28px;
+  border-radius: 6px 6px 12px 12px;
+  background: var(--neo-bg);
+  box-shadow: var(--neo-raised-sm);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ia-robot-chest-light {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(74, 123, 247, 0.4);
+  box-shadow: var(--neo-pressed-sm), 0 0 6px rgba(74, 123, 247, 0.3);
+  animation: chestGlow 2.5s ease-in-out infinite;
+}
+
+@keyframes chestGlow {
+  0%, 100% { background: rgba(74, 123, 247, 0.3); box-shadow: var(--neo-pressed-sm), 0 0 4px rgba(74, 123, 247, 0.2); }
+  50% { background: rgba(74, 123, 247, 0.6); box-shadow: var(--neo-pressed-sm), 0 0 10px rgba(74, 123, 247, 0.5); }
+}
+
+/* Sombra del robot */
+.ia-robot-shadow {
+  width: 40px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--neo-shadow-dark);
+  opacity: 0.25;
+  margin-top: 8px;
+  animation: robotShadow 3s ease-in-out infinite;
+}
+
+@keyframes robotShadow {
+  0%, 100% { transform: scaleX(1); opacity: 0.25; }
+  50% { transform: scaleX(0.8); opacity: 0.15; }
 }
 
 /* ── Bloques de contenido IA ──────────────────────────────────────── */
@@ -815,6 +1208,40 @@ watch(
   flex-shrink: 0;
 }
 
+/* ── Toggle y sparkle en sugerencias ───────────────────────────────── */
+.ia-suggestions-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--neo-radius-xs);
+  transition: background 0.15s ease;
+  font-family: inherit;
+}
+
+.ia-suggestions-toggle:hover {
+  background: rgba(var(--v-theme-primary), 0.04);
+}
+
+.ia-chevron {
+  transition: transform 0.25s ease;
+}
+
+.ia-chevron.open {
+  transform: rotate(180deg);
+}
+
+.ia-sparkle {
+  color: rgb(var(--v-theme-primary));
+  font-size: 0.7rem;
+  animation: sparkleRotate 3s linear infinite;
+}
+
+@keyframes sparkleRotate {
+  0% { transform: rotate(0deg) scale(1); opacity: 0.7; }
+  50% { transform: rotate(180deg) scale(1.2); opacity: 1; }
+  100% { transform: rotate(360deg) scale(1); opacity: 0.7; }
+}
+
 /* ── Sugerencias ──────────────────────────────────────────────────── */
 .neo-suggestion-btn {
   background: none;
@@ -868,12 +1295,12 @@ watch(
   opacity: 0.55;
 }
 
-/* ── Typing indicator ─────────────────────────────────────────────── */
+/* ── Typing indicator mejorado ────────────────────────────────────── */
 .typing-indicator {
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 14px;
+  gap: 5px;
+  height: 16px;
 }
 
 .typing-indicator span {
@@ -881,16 +1308,17 @@ watch(
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background-color: rgba(74, 123, 247, 0.55);
-  animation: typing 1.4s infinite ease-in-out both;
+  background: rgb(var(--v-theme-primary));
+  animation: typingBounce 1.4s infinite ease-in-out both;
 }
 
-.typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
-.typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+.typing-indicator span:nth-child(1) { animation-delay: 0s; }
+.typing-indicator span:nth-child(2) { animation-delay: 0.15s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.3s; }
 
-@keyframes typing {
-  0%, 80%, 100% { transform: scale(0); opacity: 0.4; }
-  40% { transform: scale(1); opacity: 1; }
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0) scale(0.8); opacity: 0.4; }
+  30% { transform: translateY(-5px) scale(1); opacity: 1; }
 }
 
 /* ── Fade-in para nuevos mensajes ─────────────────────────────────── */

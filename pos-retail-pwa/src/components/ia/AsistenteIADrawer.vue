@@ -56,6 +56,33 @@ const mostrarHistorial = ref(false)
 const tabActiva = ref<'chat' | 'insights'>('chat')
 const expandedSources = ref<Record<string, boolean>>({})
 const mostrarSugerencias = ref(true)
+const highlightedSourceKey = ref<string | null>(null)
+
+function onCiteBadgeClick(event: MouseEvent, msg: IAMessage, messageIndex: number) {
+  const target = event.target as HTMLElement
+  if (!target.classList.contains('ia-cite-badge')) return
+  const idx = parseInt(target.dataset.idx || '', 10)
+  if (isNaN(idx)) return
+
+  // Expandir fuentes si están colapsadas
+  const key = sourceKey(messageIndex)
+  if (!expandedSources.value[key] && (msg.webSources?.length || 0) > 3) {
+    expandedSources.value[key] = true
+  }
+
+  // Resaltar la fuente correspondiente (idx es 1-based)
+  const sourceHighlightKey = `${messageIndex}-${idx - 1}`
+  highlightedSourceKey.value = sourceHighlightKey
+  setTimeout(() => {
+    if (highlightedSourceKey.value === sourceHighlightKey) highlightedSourceKey.value = null
+  }, 2000)
+
+  // Scroll al elemento de fuente
+  nextTick(() => {
+    const el = document.getElementById(`source-${messageIndex}-${idx - 1}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  })
+}
 
 // ── Typewriter effect ──────────────────────────────────────────────────────
 const streamingMsgIdx = ref<number | null>(null)
@@ -148,6 +175,8 @@ function limpiarMarkdownBasico(texto: string): string {
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
     .replace(/`(.*?)`/g, '<code class="bg-grey-lighten-3 px-1 rounded text-caption">$1</code>')
+    // Citas inline [n] → badges superíndice clicables
+    .replace(/\[(\d+)\]/g, '<sup class="ia-cite-badge" data-idx="$1">$1</sup>')
 }
 
 /** Normaliza saltos de línea: convierte secuencias literales \\n en saltos reales */
@@ -284,6 +313,20 @@ function visibleSources(msg: IAMessage, messageIndex: number): WebSource[] {
   if (sources.length <= 3) return sources
   const key = sourceKey(messageIndex)
   return expandedSources.value[key] ? sources : sources.slice(0, 3)
+}
+
+function getSourceSnippet(msg: IAMessage, sourceIdx: number): string {
+  const supports = msg.groundingSupports || []
+  const snippets: string[] = []
+  for (const s of supports) {
+    if (s.sourceIndices.includes(sourceIdx) && s.text) {
+      snippets.push(s.text)
+    }
+  }
+  if (snippets.length === 0) return ''
+  // Return the first relevant snippet, truncated
+  const combined = snippets[0] ?? ''
+  return combined.length > 120 ? combined.slice(0, 120) + '…' : combined
 }
 
 async function enviar() {
@@ -502,7 +545,7 @@ watch(
                     </div>
                   </div>
 
-                  <div class="mensaje-bubble" :class="msg.role === 'user' ? 'mensaje-user bg-primary text-white' : 'mensaje-ia bg-surface'" :style="msg.role === 'assistant' ? 'flex: 1; min-width: 0;' : ''">
+                  <div class="mensaje-bubble" :class="msg.role === 'user' ? 'mensaje-user bg-primary text-white' : 'mensaje-ia bg-surface'" :style="msg.role === 'assistant' ? 'flex: 1; min-width: 0;' : ''" @click="msg.role === 'assistant' ? onCiteBadgeClick($event, msg, index) : undefined">
                     <template v-if="msg.role === 'assistant'">
                       <div
                         v-for="(block, bIdx) in parsearRespuestaIA(streamingMsgIdx === index ? streamingContent : msg.content)"
@@ -543,25 +586,39 @@ watch(
                       <span v-if="streamingMsgIdx === index" class="ia-cursor">▌</span>
 
                       <div v-if="msg.webSources && msg.webSources.length > 0 && streamingMsgIdx !== index" class="web-sources-section mt-3 pt-2">
-                        <div class="d-flex align-center mb-1">
-                          <v-icon size="12" color="success" class="mr-1">mdi-web</v-icon>
-                          <span class="text-caption font-weight-medium text-success" style="font-size: 0.7rem !important;">
+                        <div class="d-flex align-center mb-2">
+                          <v-icon size="14" color="success" class="mr-1">mdi-web</v-icon>
+                          <span class="text-caption font-weight-medium text-success" style="font-size: 0.72rem !important;">
                             Fuentes consultadas
+                          </span>
+                          <span class="text-caption ml-1" style="opacity: 0.5; font-size: 0.65rem !important;">
+                            ({{ msg.webSources.length }})
                           </span>
                         </div>
 
                         <div class="d-flex flex-column ga-1">
                           <a
                             v-for="(source, sIdx) in visibleSources(msg, index)"
+                            :id="`source-${index}-${sIdx}`"
                             :key="`src-${index}-${sIdx}`"
                             :href="source.url"
                             target="_blank"
                             rel="noopener noreferrer"
-                            class="web-source-row text-caption d-inline-flex align-center px-2 py-1 rounded"
+                            class="web-source-card"
+                            :class="{ 'web-source-highlighted': highlightedSourceKey === `${index}-${sIdx}` }"
                           >
-                            <img v-if="getFaviconUrl(source)" :src="getFaviconUrl(source)" alt="favicon" class="web-favicon mr-2" />
-                            <span class="text-truncate">{{ getSourceTitle(source) }}</span>
-                            <v-icon size="12" class="ml-1">mdi-open-in-new</v-icon>
+                            <span class="web-source-idx">{{ sIdx + 1 }}</span>
+                            <div class="web-source-info">
+                              <div class="d-flex align-center">
+                                <img v-if="getFaviconUrl(source)" :src="getFaviconUrl(source)" alt="" class="web-favicon mr-1" />
+                                <span class="web-source-title text-truncate">{{ getSourceTitle(source) }}</span>
+                                <v-icon size="11" class="ml-auto flex-shrink-0" style="opacity: 0.4">mdi-open-in-new</v-icon>
+                              </div>
+                              <span class="web-source-host">{{ getSourceHostname(source) }}</span>
+                              <span v-if="getSourceSnippet(msg, sIdx)" class="web-source-snippet">
+                                « {{ getSourceSnippet(msg, sIdx) }} »
+                              </span>
+                            </div>
                           </a>
                         </div>
 
@@ -573,7 +630,7 @@ watch(
                           class="mt-1"
                           @click="toggleSources(index)"
                         >
-                          {{ expandedSources[sourceKey(index)] ? 'Ver menos' : `Ver más (${(msg.webSources?.length || 0) - 3})` }}
+                          {{ expandedSources[sourceKey(index)] ? 'Ver menos' : `+${(msg.webSources?.length || 0) - 3} fuentes más` }}
                         </v-btn>
 
                         <div v-if="msg.searchQueries && msg.searchQueries.length > 0" class="mt-2 d-flex flex-wrap ga-1">
@@ -583,7 +640,8 @@ watch(
                             size="x-small"
                             variant="outlined"
                             color="info"
-                            class="text-caption"
+                            class="text-caption ia-search-chip"
+                            prepend-icon="mdi-magnify"
                           >
                             {{ query }}
                           </v-chip>
@@ -1197,19 +1255,86 @@ watch(
   border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
 
-.web-source-row {
-  background-color: rgba(76, 175, 80, 0.08);
-  color: #2e7d32;
-  font-size: 0.68rem !important;
+/* Tarjeta de fuente individual */
+.web-source-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--neo-radius-xs, 8px);
+  background: rgba(76, 175, 80, 0.05);
+  border: 1px solid rgba(76, 175, 80, 0.12);
   text-decoration: none;
-  transition: all 0.18s ease;
-  border: 1px solid rgba(76, 175, 80, 0.15);
+  color: inherit;
+  transition: all 0.2s ease;
+  cursor: pointer;
 }
 
-.web-source-row:hover {
-  background-color: rgba(76, 175, 80, 0.16);
-  border-color: rgba(76, 175, 80, 0.3);
+.web-source-card:hover {
+  background: rgba(76, 175, 80, 0.12);
+  border-color: rgba(76, 175, 80, 0.28);
   transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.12);
+}
+
+.web-source-card.web-source-highlighted {
+  background: rgba(76, 175, 80, 0.18);
+  border-color: rgba(76, 175, 80, 0.45);
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+  animation: source-pulse 0.6s ease;
+}
+
+@keyframes source-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2); }
+  50% { box-shadow: 0 0 0 4px rgba(76, 175, 80, 0.3); }
+}
+
+.web-source-idx {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(76, 175, 80, 0.18);
+  color: #2e7d32;
+  font-size: 0.65rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.web-source-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.web-source-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #2e7d32;
+  line-height: 1.3;
+}
+
+.web-source-host {
+  font-size: 0.62rem;
+  color: rgba(0, 0, 0, 0.4);
+  letter-spacing: 0.01em;
+}
+
+.web-source-snippet {
+  font-size: 0.64rem;
+  color: rgba(0, 0, 0, 0.5);
+  font-style: italic;
+  line-height: 1.35;
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .web-favicon {
@@ -1217,6 +1342,37 @@ watch(
   height: 14px;
   border-radius: 3px;
   flex-shrink: 0;
+}
+
+/* Badge de cita inline [n] */
+.ia-cite-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin: 0 1px;
+  border-radius: 8px;
+  background: rgba(76, 175, 80, 0.18);
+  color: #2e7d32;
+  font-size: 0.6rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  vertical-align: super;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.ia-cite-badge:hover {
+  background: rgba(76, 175, 80, 0.35);
+  transform: scale(1.15);
+}
+
+/* Chip de búsqueda */
+.ia-search-chip {
+  font-size: 0.65rem !important;
 }
 
 /* ── Toggle y sparkle en sugerencias ───────────────────────────────── */

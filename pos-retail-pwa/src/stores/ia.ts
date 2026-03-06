@@ -204,6 +204,7 @@ export const useIAStore = defineStore('ia', () => {
         timestamp: new Date().toISOString(),
         webSources: response.web_sources,
         searchQueries: response.search_queries,
+        groundingSupports: response.grounding_supports,
         usedWebSearch: response.used_web_search,
       }
       mensajes.value = [...mensajes.value, assistantMessage]

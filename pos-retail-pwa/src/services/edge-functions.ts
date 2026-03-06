@@ -82,6 +82,11 @@ export interface WebSource {
   title: string
 }
 
+export interface GroundingSupport {
+  text: string
+  sourceIndices: number[]
+}
+
 export interface AgenteIAResponse {
   success: boolean
   message: string
@@ -89,6 +94,7 @@ export interface AgenteIAResponse {
   follow_up_suggestions?: string[]
   web_sources?: WebSource[]
   search_queries?: string[]
+  grounding_supports?: GroundingSupport[]
   used_web_search?: boolean
 }
 
@@ -124,6 +130,7 @@ export interface IAMessage {
   timestamp: string
   webSources?: WebSource[]
   searchQueries?: string[]
+  groundingSupports?: GroundingSupport[]
   usedWebSearch?: boolean
 }
 

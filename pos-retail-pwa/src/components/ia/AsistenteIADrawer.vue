@@ -150,6 +150,11 @@ function limpiarMarkdownBasico(texto: string): string {
     .replace(/`(.*?)`/g, '<code class="bg-grey-lighten-3 px-1 rounded text-caption">$1</code>')
 }
 
+/** Normaliza saltos de línea: convierte secuencias literales \\n en saltos reales */
+function normalizarSaltos(texto: string): string {
+  return texto.replace(/\\n/g, '\n')
+}
+
 function esSeparadorTabla(linea: string): boolean {
   return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(linea)
 }
@@ -171,12 +176,17 @@ function parsearLinea(lineaRaw: string): ParsedLine {
     return { tipo: 'numbered', valor: numberedMatch[2] ?? '', prefix: numberedMatch[1] ?? '' }
   }
 
-  if (/^[-*•]\s+/.test(linea)) {
-    return { tipo: 'bullet', valor: linea.replace(/^[-*•]\s+/, '') }
+  if (/^[-*•●]\s+/.test(linea)) {
+    return { tipo: 'bullet', valor: linea.replace(/^[-*•●]\s+/, '') }
   }
 
-  if (linea.startsWith('### ')) {
-    return { tipo: 'titulo', valor: linea.replace(/^###\s+/, '') }
+  if (/^#{1,4}\s+/.test(linea)) {
+    return { tipo: 'titulo', valor: linea.replace(/^#{1,4}\s+/, '') }
+  }
+
+  // Emoji-prefixed lines that look like section headers (e.g. "💡 Recomendaciones")
+  if (/^[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s+\S/u.test(linea) && linea.length < 80) {
+    return { tipo: 'titulo', valor: linea }
   }
 
   if (linea.endsWith(':') || linea.endsWith(':</strong>')) {
@@ -187,7 +197,8 @@ function parsearLinea(lineaRaw: string): ParsedLine {
 }
 
 function parsearRespuestaIA(texto: string): ParsedBlock[] {
-  const limpio = limpiarMarkdownBasico(texto)
+  const normalizado = normalizarSaltos(texto)
+  const limpio = limpiarMarkdownBasico(normalizado)
   const lineas = limpio.split('\n')
   const blocks: ParsedBlock[] = []
 

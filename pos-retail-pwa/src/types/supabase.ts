@@ -127,7 +127,29 @@ export interface Database {
           reason?: string | null
           sale_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "discount_applications_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "sales"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discount_applications_discount_id_fkey"
+            columns: ["discount_id"]
+            isOneToOne: false
+            referencedRelation: "discounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discount_applications_combo_id_fkey"
+            columns: ["combo_id"]
+            isOneToOne: false
+            referencedRelation: "combos"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       discounts: {
         Row: {

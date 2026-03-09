@@ -248,11 +248,22 @@ export async function analizarProductoImagen(
 
 // ==================== RECONOCIMIENTO IA DE PRODUCTOS ====================
 
-export interface DetectedProduct {
+export interface MatchedProduct {
+  product_id: string
   label: string
-  box_2d: [number, number, number, number] // [ymin, xmin, ymax, xmax] 0-1000
-  estimated_price?: number
-  confidence?: 'high' | 'medium' | 'low'
+  confidence: 'high' | 'medium' | 'low'
+  match_reason: string
+  product: {
+    id: string
+    name: string
+    sku: string
+    barcode: string
+    price: number
+    stock: number
+    image_url: string | null
+    category_id: string | null
+    categories: { name: string } | null
+  }
 }
 
 export interface ReconocerProductosRequest {
@@ -263,10 +274,8 @@ export interface ReconocerProductosRequest {
 export interface ReconocerProductosResponse {
   success: boolean
   mode: 'recognition'
-  detected_products: DetectedProduct[]
-  price_sources?: WebSource[]
-  search_queries?: string[]
-  price_researched?: boolean
+  matched_products: MatchedProduct[]
+  catalog_size: number
 }
 
 export async function reconocerProductosImagen(

@@ -7,9 +7,8 @@ import { useDescuentosStore, type ApplicablePromotion } from '@/stores/descuento
 import { useAuthStore } from '@/stores/auth'
 import { procesarVenta } from '@/services/edge-functions'
 import { reconocerProductosImagen } from '@/services/edge-functions'
-import type { ProcesarVentaResponse, DetectedProduct } from '@/services/edge-functions'
+import type { ProcesarVentaResponse, MatchedProduct } from '@/services/edge-functions'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
-import { searchProducts } from '@/services/database'
 import FacturaRecibo from '@/components/pos/FacturaRecibo.vue'
 import type { FacturaData } from '@/components/pos/FacturaRecibo.vue'
 import { playSuccessBeep, playErrorBeep } from '@/composables/useScanSound'
@@ -46,7 +45,7 @@ let scanFlashTimer: ReturnType<typeof setTimeout> | null = null
 // === IA RECOGNITION STATE (integrado en escáner) ===
 const iaRecognitionLoading = ref(false)
 const iaRecognitionError = ref('')
-const iaDetectedProducts = ref<Array<DetectedProduct & { matchedProduct?: any; searching?: boolean }>>([])
+const iaMatchedProducts = ref<MatchedProduct[]>([])
 
 const BARCODE_FORMATS = [
   Html5QrcodeSupportedFormats.EAN_13,
@@ -124,7 +123,7 @@ watch(showScanner, async (open) => {
   scannerStatus.value = ''
   scannerError.value = ''
   iaRecognitionError.value = ''
-  iaDetectedProducts.value = []
+  iaMatchedProducts.value = []
   iaRecognitionLoading.value = false
   showManualEntry.value = false
   torchOn.value = false
@@ -620,7 +619,7 @@ async function captureAndRecognize() {
 
   // Reset state
   iaRecognitionError.value = ''
-  iaDetectedProducts.value = []
+  iaMatchedProducts.value = []
   iaRecognitionLoading.value = true
 
   // Capturar frame del video en vivo
@@ -637,35 +636,12 @@ async function captureAndRecognize() {
       mimeType: 'image/jpeg',
     })
 
-    if (response.detected_products.length === 0) {
-      iaRecognitionError.value = 'No se detectaron productos. Enfoca mejor el producto e intenta de nuevo.'
+    if (response.matched_products.length === 0) {
+      iaRecognitionError.value = 'No se encontraron coincidencias en el inventario. Enfoca mejor el producto e intenta de nuevo.'
       return
     }
 
-    // Para cada producto detectado, buscar coincidencias en BD
-    iaDetectedProducts.value = response.detected_products.map(dp => ({
-      ...dp,
-      matchedProduct: null,
-      searching: true,
-    }))
-
-    // Buscar matches en paralelo
-    await Promise.all(
-      iaDetectedProducts.value.map(async (dp, idx) => {
-        try {
-          const results = await searchProducts(dp.label)
-          if (results.length > 0) {
-            const item = iaDetectedProducts.value[idx]
-            if (item) item.matchedProduct = results[0]
-          }
-        } catch {
-          // No match found
-        } finally {
-          const item = iaDetectedProducts.value[idx]
-          if (item) item.searching = false
-        }
-      })
-    )
+    iaMatchedProducts.value = response.matched_products
   } catch (err) {
     iaRecognitionError.value = err instanceof Error ? err.message : 'Error al reconocer productos'
   } finally {
@@ -1557,69 +1533,51 @@ function formatHNL(value: number): string {
                 {{ iaRecognitionError }}
               </v-alert>
 
-              <!-- IA Productos detectados -->
-              <div v-if="!iaRecognitionLoading && iaDetectedProducts.length > 0" class="mt-2">
+              <!-- IA Productos encontrados -->
+              <div v-if="!iaRecognitionLoading && iaMatchedProducts.length > 0" class="mt-2">
                 <p class="text-caption font-weight-bold text-success mb-2">
                   <v-icon size="14" class="mr-1">mdi-check-circle</v-icon>
-                  {{ iaDetectedProducts.length }} producto{{ iaDetectedProducts.length > 1 ? 's' : '' }} detectado{{ iaDetectedProducts.length > 1 ? 's' : '' }}
+                  {{ iaMatchedProducts.length }} coincidencia{{ iaMatchedProducts.length > 1 ? 's' : '' }} en inventario
                 </p>
                 <div class="d-flex flex-column" style="gap:8px;">
                   <v-card
-                    v-for="(dp, idx) in iaDetectedProducts"
+                    v-for="(mp, idx) in iaMatchedProducts"
                     :key="idx"
                     class="neo-flat rounded-xl"
                     variant="flat"
                   >
                     <v-card-text class="pa-3">
-                      <div class="d-flex align-center gap-2 mb-1">
-                        <div class="flex-grow-1 min-width-0">
-                          <p class="text-body-2 font-weight-bold text-truncate mb-0">{{ dp.label }}</p>
-                          <div class="d-flex align-center flex-wrap ga-1 mt-1">
-                            <v-chip :color="iaGetConfidenceColor(dp.confidence)" size="x-small" variant="tonal">
-                              {{ iaGetConfidenceLabel(dp.confidence) }}
-                            </v-chip>
-                            <span v-if="dp.estimated_price" class="text-caption text-medium-emphasis">
-                              ~<strong class="text-primary">L {{ dp.estimated_price?.toFixed(2) }}</strong>
-                            </span>
-                          </div>
+                      <div class="ia-match-row">
+                        <v-avatar size="40" rounded="lg" color="surface-variant" class="flex-shrink-0">
+                          <v-img v-if="mp.product.image_url" :src="mp.product.image_url" cover />
+                          <v-icon v-else size="20" color="medium-emphasis">mdi-package-variant</v-icon>
+                        </v-avatar>
+                        <div class="flex-grow-1 ml-2 min-width-0">
+                          <p class="text-body-2 font-weight-bold text-truncate mb-0">{{ mp.product.name }}</p>
+                          <p class="text-caption text-medium-emphasis mb-0">
+                            L {{ mp.product.price?.toFixed(2) }} · {{ mp.product.stock ?? 0 }} en stock
+                          </p>
+                          <p class="text-caption text-medium-emphasis mb-0 font-italic">
+                            {{ mp.match_reason }}
+                          </p>
                         </div>
-                      </div>
-
-                      <div v-if="dp.searching" class="d-flex align-center mt-2">
-                        <v-progress-circular indeterminate size="14" width="2" color="primary" class="mr-2" />
-                        <span class="text-caption text-medium-emphasis">Buscando en inventario...</span>
-                      </div>
-
-                      <div v-else-if="dp.matchedProduct" class="mt-2">
-                        <div class="ia-match-row">
-                          <v-avatar size="40" rounded="lg" color="surface-variant" class="flex-shrink-0">
-                            <v-img v-if="dp.matchedProduct.image_url" :src="dp.matchedProduct.image_url" cover />
-                            <v-icon v-else size="20" color="medium-emphasis">mdi-package-variant</v-icon>
-                          </v-avatar>
-                          <div class="flex-grow-1 ml-2 min-width-0">
-                            <p class="text-body-2 font-weight-bold text-truncate mb-0">{{ dp.matchedProduct.name }}</p>
-                            <p class="text-caption text-medium-emphasis mb-0">
-                              L {{ dp.matchedProduct.price?.toFixed(2) }} · {{ dp.matchedProduct.stock ?? 0 }} en stock
-                            </p>
-                          </div>
+                        <div class="d-flex flex-column align-center ml-2 flex-shrink-0" style="gap:4px;">
+                          <v-chip :color="iaGetConfidenceColor(mp.confidence)" size="x-small" variant="tonal">
+                            {{ iaGetConfidenceLabel(mp.confidence) }}
+                          </v-chip>
                           <v-btn
                             color="success"
                             size="small"
                             variant="elevated"
                             rounded="pill"
-                            :disabled="(dp.matchedProduct.stock ?? 0) <= 0"
-                            class="ml-2 flex-shrink-0"
-                            @click="iaAddToCart(dp.matchedProduct)"
+                            :disabled="(mp.product.stock ?? 0) <= 0"
+                            @click="iaAddToCart(mp.product)"
                           >
                             <v-icon start size="14">mdi-cart-plus</v-icon>
                             Agregar
                           </v-btn>
                         </div>
                       </div>
-
-                      <v-alert v-else type="info" density="compact" variant="tonal" class="mt-2 text-caption" rounded="lg">
-                        No encontrado en inventario
-                      </v-alert>
                     </v-card-text>
                   </v-card>
                 </div>

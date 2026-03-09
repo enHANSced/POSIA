@@ -7,9 +7,8 @@ import { useDescuentosStore, type ApplicablePromotion } from '@/stores/descuento
 import { useAuthStore } from '@/stores/auth'
 import { procesarVenta } from '@/services/edge-functions'
 import { reconocerProductosImagen } from '@/services/edge-functions'
-import type { ProcesarVentaResponse, DetectedProduct } from '@/services/edge-functions'
+import type { ProcesarVentaResponse, MatchedProduct } from '@/services/edge-functions'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
-import { searchProducts } from '@/services/database'
 import FacturaRecibo from '@/components/pos/FacturaRecibo.vue'
 import type { FacturaData } from '@/components/pos/FacturaRecibo.vue'
 import { playSuccessBeep, playErrorBeep } from '@/composables/useScanSound'
@@ -24,6 +23,7 @@ const searchQuery = ref('')
 const showScanner = ref(false)
 const showMobileCart = ref(false)
 const lastAddedId = ref<string | null>(null)
+const scannerCartPulse = ref(false)
 const scannerManualCode = ref('')
 const scannerStatus = ref('')
 const scannerError = ref('')
@@ -34,6 +34,7 @@ const lastScanTime = ref(0)
 const showScanSnackbar = ref(false)
 const scanSnackbarText = ref('')
 let snackbarTimer: ReturnType<typeof setTimeout> | null = null
+let scannerCartPulseTimer: ReturnType<typeof setTimeout> | null = null
 
 // Scanner UI state
 const showManualEntry = ref(false)
@@ -44,7 +45,7 @@ let scanFlashTimer: ReturnType<typeof setTimeout> | null = null
 // === IA RECOGNITION STATE (integrado en escáner) ===
 const iaRecognitionLoading = ref(false)
 const iaRecognitionError = ref('')
-const iaDetectedProducts = ref<Array<DetectedProduct & { matchedProduct?: any; searching?: boolean }>>([])
+const iaMatchedProducts = ref<MatchedProduct[]>([])
 
 const BARCODE_FORMATS = [
   Html5QrcodeSupportedFormats.EAN_13,
@@ -115,13 +116,14 @@ onUnmounted(() => {
   clearScanner()
   if (snackbarTimer) clearTimeout(snackbarTimer)
   if (scanFlashTimer) clearTimeout(scanFlashTimer)
+  if (scannerCartPulseTimer) clearTimeout(scannerCartPulseTimer)
 })
 
 watch(showScanner, async (open) => {
   scannerStatus.value = ''
   scannerError.value = ''
   iaRecognitionError.value = ''
-  iaDetectedProducts.value = []
+  iaMatchedProducts.value = []
   iaRecognitionLoading.value = false
   showManualEntry.value = false
   torchOn.value = false
@@ -219,20 +221,27 @@ function aplicarPromocion(promocion: ApplicablePromotion) {
   })
 }
 
-function limpiarPromocionAplicada() {
-  carritoStore.clearPromotion()
-}
-
 watch(promocionesElegibles, (actuales) => {
+  if (actuales.length === 0) {
+    // Sin promos elegibles, limpiar si había una aplicada automáticamente
+    const aplicada = carritoStore.appliedPromotion
+    if (aplicada && aplicada.source !== 'manual') {
+      carritoStore.clearPromotion()
+    }
+    return
+  }
+
+  // Auto-aplicar la mejor promoción (ya viene ordenado por mayor ahorro)
+  const mejor = actuales[0]!
   const aplicada = carritoStore.appliedPromotion
-  if (!aplicada || aplicada.source === 'manual') return
 
-  const sigueSiendoElegible = actuales.some(
-    promo => promo.id === aplicada.id && promo.source === aplicada.source
-  )
+  // Si no hay promo aplicada, o la aplicada ya no es elegible, o hay una mejor → aplicar la mejor
+  const aplicadaElegible = aplicada && aplicada.source !== 'manual'
+    ? actuales.some(p => p.id === aplicada.id && p.source === aplicada.source)
+    : false
 
-  if (!sigueSiendoElegible) {
-    carritoStore.clearPromotion()
+  if (!aplicada || aplicada.source === 'manual' || !aplicadaElegible || mejor.amount > (aplicada?.amount ?? 0)) {
+    aplicarPromocion(mejor)
   }
 }, { deep: true })
 
@@ -282,6 +291,26 @@ const showWeightDialog = ref(false)
 const weightDialogProduct = ref<any>(null)
 const weightDialogValue = ref<number>(1)
 
+// Edición manual de cantidad para carrito móvil
+const showMobileQtyDialog = ref(false)
+const mobileQtyIndex = ref<number | null>(null)
+const mobileQtyValue = ref<number>(1)
+const mobileQtyProductName = ref('')
+const mobileQtySellsByWeight = ref(false)
+const mobileQtyMax = ref<number>(999)
+
+function triggerCartPulse() {
+  if (scannerCartPulseTimer) clearTimeout(scannerCartPulseTimer)
+  scannerCartPulse.value = true
+  scannerCartPulseTimer = setTimeout(() => { scannerCartPulse.value = false }, 450)
+}
+
+function setLastAdded(productId: string) {
+  lastAddedId.value = productId
+  triggerCartPulse()
+  setTimeout(() => { lastAddedId.value = null }, 600)
+}
+
 function agregarAlCarrito(producto: any) {
   if (productSellsByWeight(producto)) {
     // Producto por peso: abrir diálogo para ingresar cantidad
@@ -291,18 +320,41 @@ function agregarAlCarrito(producto: any) {
     return
   }
   carritoStore.addItem(producto)
-  // Feedback visual: animar la tarjeta por 600ms
-  lastAddedId.value = producto.id
-  setTimeout(() => { lastAddedId.value = null }, 600)
+  // Feedback visual en producto y acceso rápido al carrito
+  setLastAdded(producto.id)
 }
 
 function confirmWeightAdd() {
   if (!weightDialogProduct.value || weightDialogValue.value <= 0) return
   carritoStore.addItem(weightDialogProduct.value, weightDialogValue.value)
-  lastAddedId.value = weightDialogProduct.value.id
-  setTimeout(() => { lastAddedId.value = null }, 600)
+  setLastAdded(weightDialogProduct.value.id)
   showWeightDialog.value = false
   weightDialogProduct.value = null
+}
+
+function openMobileQtyDialog(index: number, item: any) {
+  mobileQtyIndex.value = index
+  mobileQtyValue.value = item.quantity
+  mobileQtyProductName.value = item.product.name
+  mobileQtySellsByWeight.value = productSellsByWeight(item.product)
+  mobileQtyMax.value = item.product.stock ?? 999
+  showMobileQtyDialog.value = true
+}
+
+function confirmMobileQty() {
+  if (mobileQtyIndex.value === null) return
+  if (mobileQtyMax.value <= 0) {
+    carritoStore.removeItem(mobileQtyIndex.value)
+    showMobileQtyDialog.value = false
+    return
+  }
+  const minQty = mobileQtySellsByWeight.value ? 0.25 : 1
+  const sanitized = Math.max(minQty, Math.min(mobileQtyValue.value || minQty, mobileQtyMax.value))
+  const qty = mobileQtySellsByWeight.value
+    ? Math.round(sanitized * 1000) / 1000
+    : Math.round(sanitized)
+  carritoStore.updateQuantity(mobileQtyIndex.value, qty)
+  showMobileQtyDialog.value = false
 }
 
 async function handleBarcode(code: string) {
@@ -330,6 +382,7 @@ async function handleBarcode(code: string) {
   scannerError.value = ''
   scannerStatus.value = `Producto agregado: ${product.name}`
   carritoStore.addItem(product)
+  setLastAdded(product.id)
   // Flash de éxito en el viewfinder
   if (scanFlashTimer) clearTimeout(scanFlashTimer)
   scanFlash.value = true
@@ -438,8 +491,7 @@ function seleccionarPrimerCoincidencia() {
     showWeightDialog.value = true
   } else {
     carritoStore.addItem(producto, quickAddQty.value)
-    lastAddedId.value = producto.id
-    setTimeout(() => { lastAddedId.value = null }, 600)
+    setLastAdded(producto.id)
   }
   searchQuery.value = ''
   quickAddQty.value = 1
@@ -567,7 +619,7 @@ async function captureAndRecognize() {
 
   // Reset state
   iaRecognitionError.value = ''
-  iaDetectedProducts.value = []
+  iaMatchedProducts.value = []
   iaRecognitionLoading.value = true
 
   // Capturar frame del video en vivo
@@ -584,35 +636,12 @@ async function captureAndRecognize() {
       mimeType: 'image/jpeg',
     })
 
-    if (response.detected_products.length === 0) {
-      iaRecognitionError.value = 'No se detectaron productos. Enfoca mejor el producto e intenta de nuevo.'
+    if (response.matched_products.length === 0) {
+      iaRecognitionError.value = 'No se encontraron coincidencias en el inventario. Enfoca mejor el producto e intenta de nuevo.'
       return
     }
 
-    // Para cada producto detectado, buscar coincidencias en BD
-    iaDetectedProducts.value = response.detected_products.map(dp => ({
-      ...dp,
-      matchedProduct: null,
-      searching: true,
-    }))
-
-    // Buscar matches en paralelo
-    await Promise.all(
-      iaDetectedProducts.value.map(async (dp, idx) => {
-        try {
-          const results = await searchProducts(dp.label)
-          if (results.length > 0) {
-            const item = iaDetectedProducts.value[idx]
-            if (item) item.matchedProduct = results[0]
-          }
-        } catch {
-          // No match found
-        } finally {
-          const item = iaDetectedProducts.value[idx]
-          if (item) item.searching = false
-        }
-      })
-    )
+    iaMatchedProducts.value = response.matched_products
   } catch (err) {
     iaRecognitionError.value = err instanceof Error ? err.message : 'Error al reconocer productos'
   } finally {
@@ -623,8 +652,11 @@ async function captureAndRecognize() {
 function iaAddToCart(product: any) {
   if (!product || (product.stock ?? 0) <= 0) return
   carritoStore.addItem(product)
-  lastAddedId.value = product.id
-  setTimeout(() => { lastAddedId.value = null }, 600)
+  setLastAdded(product.id)
+
+  // Limpiar resultados IA
+  iaMatchedProducts.value = []
+  iaRecognitionError.value = ''
 
   // Snackbar
   if (snackbarTimer) clearTimeout(snackbarTimer)
@@ -936,37 +968,31 @@ function formatHNL(value: number): string {
           <!-- Totales -->
           <div class="pa-4 pt-2">
             <div class="neo-totals-box pa-4">
-              <div class="mb-3">
+              <div v-if="promocionesElegibles.length > 0" class="mb-3">
                 <div class="d-flex align-center mb-2">
-                  <v-icon size="16" class="text-medium-emphasis mr-2">mdi-brightness-percent</v-icon>
-                  <span class="text-body-2 text-medium-emphasis">Promociones elegibles</span>
+                  <v-icon size="16" color="success" class="mr-2">mdi-check-decagram</v-icon>
+                  <span class="text-body-2 font-weight-medium">Promociones aplicadas</span>
                 </div>
 
-                <div v-if="promocionesElegibles.length > 0" class="d-flex flex-wrap ga-2">
+                <div class="d-flex flex-wrap ga-2">
                   <v-chip
                     v-for="promo in promocionesElegibles"
                     :key="`${promo.source}:${promo.id}`"
                     size="small"
                     variant="tonal"
                     :color="promocionAplicadaId === `${promo.source}:${promo.id}` ? 'success' : 'primary'"
-                    class="cursor-pointer"
-                    @click="aplicarPromocion(promo)"
                   >
+                    <v-icon v-if="promocionAplicadaId === `${promo.source}:${promo.id}`" start size="14">mdi-check-circle</v-icon>
                     {{ promo.name }} · -{{ formatHNL(promo.amount) }}
+                    <v-tooltip activator="parent" location="top" max-width="280">
+                      <div class="text-caption">
+                        <strong>{{ promo.name }}</strong><br>
+                        <span v-if="promo.description">{{ promo.description }}<br></span>
+                        Tipo: {{ promo.source === 'combo' ? 'Combo' : 'Descuento' }} · {{ promo.type === 'percentage' ? promo.value + '%' : 'L ' + promo.value.toFixed(2) }}<br>
+                        Ahorro: {{ formatHNL(promo.amount) }}
+                      </div>
+                    </v-tooltip>
                   </v-chip>
-                </div>
-
-                <div v-else class="text-caption text-medium-emphasis">
-                  No hay promociones aplicables para este carrito.
-                </div>
-
-                <div v-if="carritoStore.appliedPromotion" class="d-flex align-center justify-space-between mt-2">
-                  <span class="text-caption text-success">
-                    Aplicada: {{ carritoStore.appliedPromotion.name }}
-                  </span>
-                  <v-btn size="x-small" variant="text" color="error" @click="limpiarPromocionAplicada">
-                    Quitar
-                  </v-btn>
                 </div>
               </div>
 
@@ -1434,6 +1460,7 @@ function formatHNL(value: number): string {
               <v-icon size="14" class="mr-1" style="opacity:.7">mdi-barcode</v-icon>
               Centra el código dentro del recuadro
             </div>
+
           </div>
 
           <!-- ── Zona de resultados y acciones ── -->
@@ -1510,69 +1537,51 @@ function formatHNL(value: number): string {
                 {{ iaRecognitionError }}
               </v-alert>
 
-              <!-- IA Productos detectados -->
-              <div v-if="!iaRecognitionLoading && iaDetectedProducts.length > 0" class="mt-2">
+              <!-- IA Productos encontrados -->
+              <div v-if="!iaRecognitionLoading && iaMatchedProducts.length > 0" class="mt-2">
                 <p class="text-caption font-weight-bold text-success mb-2">
                   <v-icon size="14" class="mr-1">mdi-check-circle</v-icon>
-                  {{ iaDetectedProducts.length }} producto{{ iaDetectedProducts.length > 1 ? 's' : '' }} detectado{{ iaDetectedProducts.length > 1 ? 's' : '' }}
+                  {{ iaMatchedProducts.length }} coincidencia{{ iaMatchedProducts.length > 1 ? 's' : '' }} en inventario
                 </p>
                 <div class="d-flex flex-column" style="gap:8px;">
                   <v-card
-                    v-for="(dp, idx) in iaDetectedProducts"
+                    v-for="(mp, idx) in iaMatchedProducts"
                     :key="idx"
                     class="neo-flat rounded-xl"
                     variant="flat"
                   >
                     <v-card-text class="pa-3">
-                      <div class="d-flex align-center gap-2 mb-1">
-                        <div class="flex-grow-1 min-width-0">
-                          <p class="text-body-2 font-weight-bold text-truncate mb-0">{{ dp.label }}</p>
-                          <div class="d-flex align-center flex-wrap ga-1 mt-1">
-                            <v-chip :color="iaGetConfidenceColor(dp.confidence)" size="x-small" variant="tonal">
-                              {{ iaGetConfidenceLabel(dp.confidence) }}
-                            </v-chip>
-                            <span v-if="dp.estimated_price" class="text-caption text-medium-emphasis">
-                              ~<strong class="text-primary">L {{ dp.estimated_price?.toFixed(2) }}</strong>
-                            </span>
-                          </div>
+                      <div class="ia-match-row">
+                        <v-avatar size="40" rounded="lg" color="surface-variant" class="flex-shrink-0">
+                          <v-img v-if="mp.product.image_url" :src="mp.product.image_url" cover />
+                          <v-icon v-else size="20" color="medium-emphasis">mdi-package-variant</v-icon>
+                        </v-avatar>
+                        <div class="flex-grow-1 ml-2 min-width-0">
+                          <p class="text-body-2 font-weight-bold text-truncate mb-0">{{ mp.product.name }}</p>
+                          <p class="text-caption text-medium-emphasis mb-0">
+                            L {{ mp.product.price?.toFixed(2) }} · {{ mp.product.stock ?? 0 }} en stock
+                          </p>
+                          <p class="text-caption text-medium-emphasis mb-0 font-italic">
+                            {{ mp.match_reason }}
+                          </p>
                         </div>
-                      </div>
-
-                      <div v-if="dp.searching" class="d-flex align-center mt-2">
-                        <v-progress-circular indeterminate size="14" width="2" color="primary" class="mr-2" />
-                        <span class="text-caption text-medium-emphasis">Buscando en inventario...</span>
-                      </div>
-
-                      <div v-else-if="dp.matchedProduct" class="mt-2">
-                        <div class="ia-match-row">
-                          <v-avatar size="40" rounded="lg" color="surface-variant" class="flex-shrink-0">
-                            <v-img v-if="dp.matchedProduct.image_url" :src="dp.matchedProduct.image_url" cover />
-                            <v-icon v-else size="20" color="medium-emphasis">mdi-package-variant</v-icon>
-                          </v-avatar>
-                          <div class="flex-grow-1 ml-2 min-width-0">
-                            <p class="text-body-2 font-weight-bold text-truncate mb-0">{{ dp.matchedProduct.name }}</p>
-                            <p class="text-caption text-medium-emphasis mb-0">
-                              L {{ dp.matchedProduct.price?.toFixed(2) }} · {{ dp.matchedProduct.stock ?? 0 }} en stock
-                            </p>
-                          </div>
+                        <div class="d-flex flex-column align-center ml-2 flex-shrink-0" style="gap:4px;">
+                          <v-chip :color="iaGetConfidenceColor(mp.confidence)" size="x-small" variant="tonal">
+                            {{ iaGetConfidenceLabel(mp.confidence) }}
+                          </v-chip>
                           <v-btn
                             color="success"
                             size="small"
                             variant="elevated"
                             rounded="pill"
-                            :disabled="(dp.matchedProduct.stock ?? 0) <= 0"
-                            class="ml-2 flex-shrink-0"
-                            @click="iaAddToCart(dp.matchedProduct)"
+                            :disabled="(mp.product.stock ?? 0) <= 0"
+                            @click="iaAddToCart(mp.product)"
                           >
                             <v-icon start size="14">mdi-cart-plus</v-icon>
                             Agregar
                           </v-btn>
                         </div>
                       </div>
-
-                      <v-alert v-else type="info" density="compact" variant="tonal" class="mt-2 text-caption" rounded="lg">
-                        No encontrado en inventario
-                      </v-alert>
                     </v-card-text>
                   </v-card>
                 </div>
@@ -1623,6 +1632,30 @@ function formatHNL(value: number): string {
 
           </div>
         </v-card-text>
+
+        <!-- Acceso al carrito en móvil, en la misma posición del FAB principal -->
+        <div
+          v-if="mobile && carritoStore.items.length > 0"
+          class="scanner-mobile-cart-overlay"
+        >
+          <v-btn
+            color="success"
+            size="large"
+            rounded="pill"
+            class="px-6 mobile-fab-btn scanner-floating-cart-btn"
+            :class="{ 'scanner-floating-cart-btn--pulse': scannerCartPulse }"
+            elevation="4"
+            @click="showMobileCart = true"
+          >
+            <v-badge :content="carritoStore.getItemCount()" color="primary" inline class="mr-2">
+              <v-icon>mdi-cart</v-icon>
+            </v-badge>
+            <span class="text-body-1 font-weight-bold ml-1">
+              {{ formatHNL(carritoStore.getTotal()) }}
+            </span>
+            <v-icon end>mdi-chevron-up</v-icon>
+          </v-btn>
+        </div>
 
         <!-- Botón cerrar (solo desktop) -->
         <v-card-actions v-if="!mobile" class="pa-4 pt-2">
@@ -1679,12 +1712,13 @@ function formatHNL(value: number): string {
 
 
     <!-- === FAB móvil: muestra el carrito como bottom sheet === -->
-    <div v-if="mobile && carritoStore.items.length > 0" class="mobile-cart-fab d-flex d-md-none">
+    <div v-if="mobile && carritoStore.items.length > 0 && !showScanner" class="mobile-cart-fab d-flex d-md-none">
       <v-btn
         color="success"
         size="large"
         rounded="pill"
         class="px-6 mobile-fab-btn"
+        :class="{ 'scanner-floating-cart-btn--pulse': scannerCartPulse }"
         elevation="4"
         @click="showMobileCart = true"
       >
@@ -1759,7 +1793,14 @@ function formatHNL(value: number): string {
                   >
                     <v-icon size="18">mdi-minus</v-icon>
                   </v-btn>
-                  <span class="mx-2 text-body-1 font-weight-bold" style="min-width: 24px; text-align: center;">{{ productSellsByWeight(item.product) ? item.quantity.toFixed(2) : item.quantity }}</span>
+                  <button
+                    class="mobile-qty-chip mx-2 text-body-1 font-weight-bold"
+                    style="min-width: 40px; text-align: center;"
+                    @click.stop="openMobileQtyDialog(index, item)"
+                    :aria-label="`Editar cantidad de ${item.product.name}`"
+                  >
+                    {{ productSellsByWeight(item.product) ? item.quantity.toFixed(2) : item.quantity }}
+                  </button>
                   <v-btn
                     icon
                     size="small"
@@ -1790,6 +1831,26 @@ function formatHNL(value: number): string {
         <!-- Totales y acciones fijos en la parte inferior -->
         <div class="pa-4 pb-safe" style="flex-shrink: 0;">
           <div class="neo-flat rounded-xl pa-3 mb-3">
+            <!-- Promociones aplicadas en móvil -->
+            <div v-if="promocionesElegibles.length > 0" class="mb-2">
+              <div class="d-flex align-center mb-1">
+                <v-icon size="14" color="success" class="mr-1">mdi-check-decagram</v-icon>
+                <span class="text-caption font-weight-medium">Promociones aplicadas</span>
+              </div>
+              <div class="d-flex flex-wrap ga-1">
+                <v-chip
+                  v-for="promo in promocionesElegibles"
+                  :key="`mob-${promo.source}:${promo.id}`"
+                  size="x-small"
+                  variant="tonal"
+                  :color="promocionAplicadaId === `${promo.source}:${promo.id}` ? 'success' : 'primary'"
+                >
+                  <v-icon v-if="promocionAplicadaId === `${promo.source}:${promo.id}`" start size="12">mdi-check-circle</v-icon>
+                  {{ promo.name }} · -{{ formatHNL(promo.amount) }}
+                </v-chip>
+              </div>
+              <v-divider class="my-2" />
+            </div>
             <div class="d-flex justify-space-between text-body-2 mb-1">
               <span class="text-medium-emphasis">Subtotal</span>
               <span>{{ formatHNL(carritoStore.getSubtotal()) }}</span>
@@ -1797,6 +1858,10 @@ function formatHNL(value: number): string {
             <div class="d-flex justify-space-between text-body-2 mb-2">
               <span class="text-medium-emphasis">ISV (15%)</span>
               <span>{{ formatHNL(carritoStore.getTax()) }}</span>
+            </div>
+            <div v-if="carritoStore.discount > 0" class="d-flex justify-space-between text-body-2 mb-2">
+              <span class="text-success">Descuento</span>
+              <span class="text-success">-{{ formatHNL(carritoStore.discount) }}</span>
             </div>
             <v-divider class="my-2" />
             <div class="d-flex justify-space-between text-h6 font-weight-bold">
@@ -1827,6 +1892,43 @@ function formatHNL(value: number): string {
         </div>
       </v-card>
     </v-bottom-sheet>
+
+    <!-- Diálogo de edición de cantidad (móvil) -->
+    <v-dialog v-model="showMobileQtyDialog" max-width="380">
+      <v-card class="neo-elevated rounded-xl">
+        <v-card-title class="d-flex align-center pa-5 pb-3">
+          <v-icon color="primary" class="mr-2">mdi-numeric</v-icon>
+          Editar cantidad
+        </v-card-title>
+
+        <v-card-text class="px-5 pb-3">
+          <p class="text-body-2 text-medium-emphasis mb-3">
+            {{ mobileQtyProductName }}
+          </p>
+
+          <v-text-field
+            v-model.number="mobileQtyValue"
+            :label="mobileQtySellsByWeight ? 'Cantidad (lb)' : 'Cantidad (uds)'"
+            type="number"
+            :min="mobileQtySellsByWeight ? 0.25 : 1"
+            :step="mobileQtySellsByWeight ? 0.25 : 1"
+            :max="mobileQtyMax"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-counter"
+            @keyup.enter="confirmMobileQty"
+          />
+        </v-card-text>
+
+        <v-card-actions class="pa-5 pt-0">
+          <v-btn variant="text" @click="showMobileQtyDialog = false">Cancelar</v-btn>
+          <v-spacer />
+          <v-btn color="primary" variant="elevated" @click="confirmMobileQty">
+            Guardar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Snackbar: producto agregado por escaneo -->
     <v-snackbar
@@ -2312,6 +2414,42 @@ function formatHNL(value: number): string {
 .mobile-fab-btn {
   box-shadow: 0 4px 14px rgba(102, 187, 106, 0.45) !important;
   min-width: 200px;
+}
+
+.scanner-mobile-cart-overlay {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 2600;
+}
+
+.scanner-floating-cart-btn {
+  backdrop-filter: blur(6px);
+}
+
+@keyframes scanner-cart-pulse {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+.scanner-floating-cart-btn--pulse {
+  animation: scanner-cart-pulse 0.45s ease;
+}
+
+.mobile-qty-chip {
+  border: none;
+  cursor: pointer;
+  border-radius: 14px;
+  padding: 4px 8px;
+  background: var(--neo-bg-alt);
+  box-shadow: var(--neo-pressed-sm);
+  color: inherit;
+}
+
+.mobile-qty-chip:hover {
+  background: rgba(var(--v-theme-primary), 0.12);
 }
 
 .gap-3 {

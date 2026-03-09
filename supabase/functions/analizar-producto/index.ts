@@ -226,29 +226,62 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ============ MODO RECOGNITION: Object Detection ============
+    // ============ MODO RECOGNITION: Match contra catálogo BD ============
     if (mode === "recognition") {
-      const recognitionPrompt = `Eres un experto en productos retail. Detecta TODOS los productos visibles en la imagen.
-Para cada producto detectado, devuelve un objeto JSON con:
-- "label": nombre del producto en español (lo más específico posible, incluye marca si es visible)
-- "box_2d": [ymin, xmin, ymax, xmax] coordenadas normalizadas de 0 a 1000
-- "estimated_price": precio estimado en Lempiras (HNL) para el mercado hondureño. USA GOOGLE SEARCH para investigar precios reales.
-- "confidence": "high", "medium" o "low" según qué tan seguro estás de la identificación
+      // Cargar catálogo de productos activos de la BD
+      const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+      const { data: catalogProducts, error: catalogError } = await supabaseAdmin
+        .from("products")
+        .select("id, name, sku, barcode, price, stock, image_url, category_id, categories(name)")
+        .eq("active", true)
+        .order("name");
 
-Responde SOLO con un array JSON válido. Ejemplo:
+      if (catalogError) {
+        console.error("Error loading catalog:", catalogError);
+        return new Response(
+          JSON.stringify({ error: "Error al cargar catálogo de productos" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const catalog = (catalogProducts || []).map((p: Record<string, unknown>) => ({
+        id: p.id,
+        name: p.name,
+        sku: p.sku || "",
+        price: p.price,
+        stock: p.stock,
+      }));
+
+      const catalogJson = JSON.stringify(catalog);
+
+      const recognitionPrompt = `Eres un sistema de identificación rápida de productos para un POS retail.
+Tu ÚNICA tarea es mirar la imagen y encontrar coincidencias en el catálogo de la tienda.
+
+CATÁLOGO DE PRODUCTOS DE LA TIENDA (SOLO estos productos existen):
+${catalogJson}
+
+INSTRUCCIONES:
+1. Observa cada producto visible en la imagen
+2. Busca la mejor coincidencia en el catálogo por nombre (NO tiene que ser exacto, usa similitud semántica: "Coca Cola" coincide con "Coca-Cola 600ml", "Doritos" coincide con "Doritos Nacho 150g", etc.)
+3. Devuelve SOLO productos del catálogo que coincidan con algo visible en la imagen
+4. Si no encuentras coincidencia para un producto visible, OMÍTELO (no inventes)
+5. El campo "product_id" DEBE ser el "id" exacto del catálogo
+
+FORMATO DE RESPUESTA (JSON array, sin texto extra):
 [
-  {"label": "Coca-Cola 600ml", "box_2d": [100, 200, 500, 400], "estimated_price": 25, "confidence": "high"},
-  {"label": "Galletas Oreo", "box_2d": [50, 450, 350, 700], "estimated_price": 35, "confidence": "medium"}
+  {
+    "product_id": "uuid-del-catalogo",
+    "label": "nombre del producto del catálogo",
+    "confidence": "high" | "medium" | "low",
+    "match_reason": "razón breve de la coincidencia"
+  }
 ]
 
-Si no detectas productos, responde con un array vacío: []
-No incluyas texto adicional fuera del JSON.`;
+Si no detectas ningún producto del catálogo, responde: []
+Prioriza VELOCIDAD y PRECISIÓN. Solo incluye coincidencias reales.`;
 
-      // Intentar con Google Search para precios
-      let geminiCall = await callGemini(geminiApiKey, recognitionPrompt, imageBase64, mimeType, true);
-      if (!geminiCall.ok) {
-        geminiCall = await callGemini(geminiApiKey, recognitionPrompt, imageBase64, mimeType, false);
-      }
+      const geminiCall = await callGemini(geminiApiKey, recognitionPrompt, imageBase64, mimeType, false);
 
       if (!geminiCall.ok) {
         return new Response(
@@ -258,36 +291,67 @@ No incluyas texto adicional fuera del JSON.`;
       }
 
       const textoDeteccion = extraerTextoModelo(geminiCall.data!);
-      let detectedProducts: DetectedProduct[] = [];
+
+      type MatchedItem = {
+        product_id: string;
+        label: string;
+        confidence: string;
+        match_reason: string;
+      };
+
+      let matchedItems: MatchedItem[] = [];
 
       try {
         const parsed = JSON.parse(textoDeteccion);
         if (Array.isArray(parsed)) {
-          detectedProducts = parsed;
+          matchedItems = parsed;
         }
       } catch {
-        // Intentar extraer array JSON del texto
         const match = textoDeteccion.match(/\[[\s\S]*\]/);
         if (match) {
           try {
-            detectedProducts = JSON.parse(match[0]);
+            matchedItems = JSON.parse(match[0]);
           } catch {
-            detectedProducts = [];
+            matchedItems = [];
           }
         }
       }
 
-      const webSources = extractWebSources(geminiCall.data!);
-      const searchQueries = geminiCall.data?.candidates?.[0]?.groundingMetadata?.webSearchQueries || [];
+      // Enriquecer con datos completos del catálogo y validar IDs
+      const catalogMap = new Map<string, Record<string, unknown>>();
+      for (const p of catalogProducts || []) {
+        catalogMap.set(p.id as string, p);
+      }
+
+      const enrichedProducts = matchedItems
+        .filter((m) => catalogMap.has(m.product_id))
+        .map((m) => {
+          const p = catalogMap.get(m.product_id)!;
+          return {
+            product_id: m.product_id,
+            label: m.label,
+            confidence: m.confidence,
+            match_reason: m.match_reason,
+            product: {
+              id: p.id,
+              name: p.name,
+              sku: p.sku,
+              barcode: p.barcode,
+              price: p.price,
+              stock: p.stock,
+              image_url: p.image_url,
+              category_id: p.category_id,
+              categories: p.categories,
+            },
+          };
+        });
 
       return new Response(
         JSON.stringify({
           success: true,
           mode: "recognition",
-          detected_products: detectedProducts,
-          price_sources: webSources,
-          search_queries: searchQueries,
-          price_researched: webSources.length > 0,
+          matched_products: enrichedProducts,
+          catalog_size: catalog.length,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );

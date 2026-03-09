@@ -219,6 +219,19 @@ const saleItems = computed(() => {
       <v-col cols="12" sm="6" md="3">
         <v-card class="neo-card pa-4">
           <div class="d-flex align-center">
+        <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #FFA726, #FFB74D);">
+          <v-icon color="white" size="20">mdi-cash-multiple</v-icon>
+        </div>
+        <div>
+          <div class="text-caption text-medium-emphasis">Ticket Promedio Hoy</div>
+          <div class="text-h6 font-weight-bold text-warning">L {{ (statsToday.count > 0 ? statsToday.total / statsToday.count : 0).toFixed(2) }}</div>
+        </div>
+          </div>
+        </v-card>
+      </v-col>
+      <v-col cols="12" sm="6" md="3">
+        <v-card class="neo-card pa-4">
+          <div class="d-flex align-center">
             <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #AB47BC, #CE93D8);">
               <v-icon color="white" size="20">mdi-receipt-text-outline</v-icon>
             </div>

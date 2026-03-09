@@ -53,6 +53,7 @@ const navItems = [
   { title: 'Inventario', icon: 'mdi-warehouse', to: '/inventario', admin: true },
   { title: 'Historial', icon: 'mdi-history', to: '/historial' },
   { title: 'Reportes', icon: 'mdi-chart-bar', to: '/reportes', admin: true },
+  { title: 'Descuentos', icon: 'mdi-tag-multiple', to: '/descuentos', admin: true },
   { title: 'Empleados', icon: 'mdi-account-group', to: '/empleados', admin: true },
   { title: 'Configuración', icon: 'mdi-cog', to: '/configuracion' }
 ]

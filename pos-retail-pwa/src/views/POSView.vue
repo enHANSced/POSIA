@@ -222,20 +222,27 @@ function aplicarPromocion(promocion: ApplicablePromotion) {
   })
 }
 
-function limpiarPromocionAplicada() {
-  carritoStore.clearPromotion()
-}
-
 watch(promocionesElegibles, (actuales) => {
+  if (actuales.length === 0) {
+    // Sin promos elegibles, limpiar si había una aplicada automáticamente
+    const aplicada = carritoStore.appliedPromotion
+    if (aplicada && aplicada.source !== 'manual') {
+      carritoStore.clearPromotion()
+    }
+    return
+  }
+
+  // Auto-aplicar la mejor promoción (ya viene ordenado por mayor ahorro)
+  const mejor = actuales[0]!
   const aplicada = carritoStore.appliedPromotion
-  if (!aplicada || aplicada.source === 'manual') return
 
-  const sigueSiendoElegible = actuales.some(
-    promo => promo.id === aplicada.id && promo.source === aplicada.source
-  )
+  // Si no hay promo aplicada, o la aplicada ya no es elegible, o hay una mejor → aplicar la mejor
+  const aplicadaElegible = aplicada && aplicada.source !== 'manual'
+    ? actuales.some(p => p.id === aplicada.id && p.source === aplicada.source)
+    : false
 
-  if (!sigueSiendoElegible) {
-    carritoStore.clearPromotion()
+  if (!aplicada || aplicada.source === 'manual' || !aplicadaElegible || mejor.amount > (aplicada?.amount ?? 0)) {
+    aplicarPromocion(mejor)
   }
 }, { deep: true })
 
@@ -981,37 +988,31 @@ function formatHNL(value: number): string {
           <!-- Totales -->
           <div class="pa-4 pt-2">
             <div class="neo-totals-box pa-4">
-              <div class="mb-3">
+              <div v-if="promocionesElegibles.length > 0" class="mb-3">
                 <div class="d-flex align-center mb-2">
-                  <v-icon size="16" class="text-medium-emphasis mr-2">mdi-brightness-percent</v-icon>
-                  <span class="text-body-2 text-medium-emphasis">Promociones elegibles</span>
+                  <v-icon size="16" color="success" class="mr-2">mdi-check-decagram</v-icon>
+                  <span class="text-body-2 font-weight-medium">Promociones aplicadas</span>
                 </div>
 
-                <div v-if="promocionesElegibles.length > 0" class="d-flex flex-wrap ga-2">
+                <div class="d-flex flex-wrap ga-2">
                   <v-chip
                     v-for="promo in promocionesElegibles"
                     :key="`${promo.source}:${promo.id}`"
                     size="small"
                     variant="tonal"
                     :color="promocionAplicadaId === `${promo.source}:${promo.id}` ? 'success' : 'primary'"
-                    class="cursor-pointer"
-                    @click="aplicarPromocion(promo)"
                   >
+                    <v-icon v-if="promocionAplicadaId === `${promo.source}:${promo.id}`" start size="14">mdi-check-circle</v-icon>
                     {{ promo.name }} · -{{ formatHNL(promo.amount) }}
+                    <v-tooltip activator="parent" location="top" max-width="280">
+                      <div class="text-caption">
+                        <strong>{{ promo.name }}</strong><br>
+                        <span v-if="promo.description">{{ promo.description }}<br></span>
+                        Tipo: {{ promo.source === 'combo' ? 'Combo' : 'Descuento' }} · {{ promo.type === 'percentage' ? promo.value + '%' : 'L ' + promo.value.toFixed(2) }}<br>
+                        Ahorro: {{ formatHNL(promo.amount) }}
+                      </div>
+                    </v-tooltip>
                   </v-chip>
-                </div>
-
-                <div v-else class="text-caption text-medium-emphasis">
-                  No hay promociones aplicables para este carrito.
-                </div>
-
-                <div v-if="carritoStore.appliedPromotion" class="d-flex align-center justify-space-between mt-2">
-                  <span class="text-caption text-success">
-                    Aplicada: {{ carritoStore.appliedPromotion.name }}
-                  </span>
-                  <v-btn size="x-small" variant="text" color="error" @click="limpiarPromocionAplicada">
-                    Quitar
-                  </v-btn>
                 </div>
               </div>
 
@@ -1868,6 +1869,26 @@ function formatHNL(value: number): string {
         <!-- Totales y acciones fijos en la parte inferior -->
         <div class="pa-4 pb-safe" style="flex-shrink: 0;">
           <div class="neo-flat rounded-xl pa-3 mb-3">
+            <!-- Promociones aplicadas en móvil -->
+            <div v-if="promocionesElegibles.length > 0" class="mb-2">
+              <div class="d-flex align-center mb-1">
+                <v-icon size="14" color="success" class="mr-1">mdi-check-decagram</v-icon>
+                <span class="text-caption font-weight-medium">Promociones aplicadas</span>
+              </div>
+              <div class="d-flex flex-wrap ga-1">
+                <v-chip
+                  v-for="promo in promocionesElegibles"
+                  :key="`mob-${promo.source}:${promo.id}`"
+                  size="x-small"
+                  variant="tonal"
+                  :color="promocionAplicadaId === `${promo.source}:${promo.id}` ? 'success' : 'primary'"
+                >
+                  <v-icon v-if="promocionAplicadaId === `${promo.source}:${promo.id}`" start size="12">mdi-check-circle</v-icon>
+                  {{ promo.name }} · -{{ formatHNL(promo.amount) }}
+                </v-chip>
+              </div>
+              <v-divider class="my-2" />
+            </div>
             <div class="d-flex justify-space-between text-body-2 mb-1">
               <span class="text-medium-emphasis">Subtotal</span>
               <span>{{ formatHNL(carritoStore.getSubtotal()) }}</span>
@@ -1875,6 +1896,10 @@ function formatHNL(value: number): string {
             <div class="d-flex justify-space-between text-body-2 mb-2">
               <span class="text-medium-emphasis">ISV (15%)</span>
               <span>{{ formatHNL(carritoStore.getTax()) }}</span>
+            </div>
+            <div v-if="carritoStore.discount > 0" class="d-flex justify-space-between text-body-2 mb-2">
+              <span class="text-success">Descuento</span>
+              <span class="text-success">-{{ formatHNL(carritoStore.discount) }}</span>
             </div>
             <v-divider class="my-2" />
             <div class="d-flex justify-space-between text-h6 font-weight-bold">

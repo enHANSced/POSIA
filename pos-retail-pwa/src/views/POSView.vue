@@ -24,6 +24,7 @@ const searchQuery = ref('')
 const showScanner = ref(false)
 const showMobileCart = ref(false)
 const lastAddedId = ref<string | null>(null)
+const scannerCartPulse = ref(false)
 const scannerManualCode = ref('')
 const scannerStatus = ref('')
 const scannerError = ref('')
@@ -34,6 +35,7 @@ const lastScanTime = ref(0)
 const showScanSnackbar = ref(false)
 const scanSnackbarText = ref('')
 let snackbarTimer: ReturnType<typeof setTimeout> | null = null
+let scannerCartPulseTimer: ReturnType<typeof setTimeout> | null = null
 
 // Scanner UI state
 const showManualEntry = ref(false)
@@ -115,6 +117,7 @@ onUnmounted(() => {
   clearScanner()
   if (snackbarTimer) clearTimeout(snackbarTimer)
   if (scanFlashTimer) clearTimeout(scanFlashTimer)
+  if (scannerCartPulseTimer) clearTimeout(scannerCartPulseTimer)
 })
 
 watch(showScanner, async (open) => {
@@ -282,6 +285,26 @@ const showWeightDialog = ref(false)
 const weightDialogProduct = ref<any>(null)
 const weightDialogValue = ref<number>(1)
 
+// Edición manual de cantidad para carrito móvil
+const showMobileQtyDialog = ref(false)
+const mobileQtyIndex = ref<number | null>(null)
+const mobileQtyValue = ref<number>(1)
+const mobileQtyProductName = ref('')
+const mobileQtySellsByWeight = ref(false)
+const mobileQtyMax = ref<number>(999)
+
+function triggerCartPulse() {
+  if (scannerCartPulseTimer) clearTimeout(scannerCartPulseTimer)
+  scannerCartPulse.value = true
+  scannerCartPulseTimer = setTimeout(() => { scannerCartPulse.value = false }, 450)
+}
+
+function setLastAdded(productId: string) {
+  lastAddedId.value = productId
+  triggerCartPulse()
+  setTimeout(() => { lastAddedId.value = null }, 600)
+}
+
 function agregarAlCarrito(producto: any) {
   if (productSellsByWeight(producto)) {
     // Producto por peso: abrir diálogo para ingresar cantidad
@@ -291,18 +314,41 @@ function agregarAlCarrito(producto: any) {
     return
   }
   carritoStore.addItem(producto)
-  // Feedback visual: animar la tarjeta por 600ms
-  lastAddedId.value = producto.id
-  setTimeout(() => { lastAddedId.value = null }, 600)
+  // Feedback visual en producto y acceso rápido al carrito
+  setLastAdded(producto.id)
 }
 
 function confirmWeightAdd() {
   if (!weightDialogProduct.value || weightDialogValue.value <= 0) return
   carritoStore.addItem(weightDialogProduct.value, weightDialogValue.value)
-  lastAddedId.value = weightDialogProduct.value.id
-  setTimeout(() => { lastAddedId.value = null }, 600)
+  setLastAdded(weightDialogProduct.value.id)
   showWeightDialog.value = false
   weightDialogProduct.value = null
+}
+
+function openMobileQtyDialog(index: number, item: any) {
+  mobileQtyIndex.value = index
+  mobileQtyValue.value = item.quantity
+  mobileQtyProductName.value = item.product.name
+  mobileQtySellsByWeight.value = productSellsByWeight(item.product)
+  mobileQtyMax.value = item.product.stock ?? 999
+  showMobileQtyDialog.value = true
+}
+
+function confirmMobileQty() {
+  if (mobileQtyIndex.value === null) return
+  if (mobileQtyMax.value <= 0) {
+    carritoStore.removeItem(mobileQtyIndex.value)
+    showMobileQtyDialog.value = false
+    return
+  }
+  const minQty = mobileQtySellsByWeight.value ? 0.25 : 1
+  const sanitized = Math.max(minQty, Math.min(mobileQtyValue.value || minQty, mobileQtyMax.value))
+  const qty = mobileQtySellsByWeight.value
+    ? Math.round(sanitized * 1000) / 1000
+    : Math.round(sanitized)
+  carritoStore.updateQuantity(mobileQtyIndex.value, qty)
+  showMobileQtyDialog.value = false
 }
 
 async function handleBarcode(code: string) {
@@ -330,6 +376,7 @@ async function handleBarcode(code: string) {
   scannerError.value = ''
   scannerStatus.value = `Producto agregado: ${product.name}`
   carritoStore.addItem(product)
+  setLastAdded(product.id)
   // Flash de éxito en el viewfinder
   if (scanFlashTimer) clearTimeout(scanFlashTimer)
   scanFlash.value = true
@@ -438,8 +485,7 @@ function seleccionarPrimerCoincidencia() {
     showWeightDialog.value = true
   } else {
     carritoStore.addItem(producto, quickAddQty.value)
-    lastAddedId.value = producto.id
-    setTimeout(() => { lastAddedId.value = null }, 600)
+    setLastAdded(producto.id)
   }
   searchQuery.value = ''
   quickAddQty.value = 1
@@ -623,8 +669,7 @@ async function captureAndRecognize() {
 function iaAddToCart(product: any) {
   if (!product || (product.stock ?? 0) <= 0) return
   carritoStore.addItem(product)
-  lastAddedId.value = product.id
-  setTimeout(() => { lastAddedId.value = null }, 600)
+  setLastAdded(product.id)
 
   // Snackbar
   if (snackbarTimer) clearTimeout(snackbarTimer)
@@ -1434,6 +1479,7 @@ function formatHNL(value: number): string {
               <v-icon size="14" class="mr-1" style="opacity:.7">mdi-barcode</v-icon>
               Centra el código dentro del recuadro
             </div>
+
           </div>
 
           <!-- ── Zona de resultados y acciones ── -->
@@ -1624,6 +1670,30 @@ function formatHNL(value: number): string {
           </div>
         </v-card-text>
 
+        <!-- Acceso al carrito en móvil, en la misma posición del FAB principal -->
+        <div
+          v-if="mobile && carritoStore.items.length > 0"
+          class="scanner-mobile-cart-overlay"
+        >
+          <v-btn
+            color="success"
+            size="large"
+            rounded="pill"
+            class="px-6 mobile-fab-btn scanner-floating-cart-btn"
+            :class="{ 'scanner-floating-cart-btn--pulse': scannerCartPulse }"
+            elevation="4"
+            @click="showMobileCart = true"
+          >
+            <v-badge :content="carritoStore.getItemCount()" color="primary" inline class="mr-2">
+              <v-icon>mdi-cart</v-icon>
+            </v-badge>
+            <span class="text-body-1 font-weight-bold ml-1">
+              {{ formatHNL(carritoStore.getTotal()) }}
+            </span>
+            <v-icon end>mdi-chevron-up</v-icon>
+          </v-btn>
+        </div>
+
         <!-- Botón cerrar (solo desktop) -->
         <v-card-actions v-if="!mobile" class="pa-4 pt-2">
           <v-btn variant="text" @click="showScanner = false">Cerrar</v-btn>
@@ -1679,12 +1749,13 @@ function formatHNL(value: number): string {
 
 
     <!-- === FAB móvil: muestra el carrito como bottom sheet === -->
-    <div v-if="mobile && carritoStore.items.length > 0" class="mobile-cart-fab d-flex d-md-none">
+    <div v-if="mobile && carritoStore.items.length > 0 && !showScanner" class="mobile-cart-fab d-flex d-md-none">
       <v-btn
         color="success"
         size="large"
         rounded="pill"
         class="px-6 mobile-fab-btn"
+        :class="{ 'scanner-floating-cart-btn--pulse': scannerCartPulse }"
         elevation="4"
         @click="showMobileCart = true"
       >
@@ -1759,7 +1830,14 @@ function formatHNL(value: number): string {
                   >
                     <v-icon size="18">mdi-minus</v-icon>
                   </v-btn>
-                  <span class="mx-2 text-body-1 font-weight-bold" style="min-width: 24px; text-align: center;">{{ productSellsByWeight(item.product) ? item.quantity.toFixed(2) : item.quantity }}</span>
+                  <button
+                    class="mobile-qty-chip mx-2 text-body-1 font-weight-bold"
+                    style="min-width: 40px; text-align: center;"
+                    @click.stop="openMobileQtyDialog(index, item)"
+                    :aria-label="`Editar cantidad de ${item.product.name}`"
+                  >
+                    {{ productSellsByWeight(item.product) ? item.quantity.toFixed(2) : item.quantity }}
+                  </button>
                   <v-btn
                     icon
                     size="small"
@@ -1827,6 +1905,43 @@ function formatHNL(value: number): string {
         </div>
       </v-card>
     </v-bottom-sheet>
+
+    <!-- Diálogo de edición de cantidad (móvil) -->
+    <v-dialog v-model="showMobileQtyDialog" max-width="380">
+      <v-card class="neo-elevated rounded-xl">
+        <v-card-title class="d-flex align-center pa-5 pb-3">
+          <v-icon color="primary" class="mr-2">mdi-numeric</v-icon>
+          Editar cantidad
+        </v-card-title>
+
+        <v-card-text class="px-5 pb-3">
+          <p class="text-body-2 text-medium-emphasis mb-3">
+            {{ mobileQtyProductName }}
+          </p>
+
+          <v-text-field
+            v-model.number="mobileQtyValue"
+            :label="mobileQtySellsByWeight ? 'Cantidad (lb)' : 'Cantidad (uds)'"
+            type="number"
+            :min="mobileQtySellsByWeight ? 0.25 : 1"
+            :step="mobileQtySellsByWeight ? 0.25 : 1"
+            :max="mobileQtyMax"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-counter"
+            @keyup.enter="confirmMobileQty"
+          />
+        </v-card-text>
+
+        <v-card-actions class="pa-5 pt-0">
+          <v-btn variant="text" @click="showMobileQtyDialog = false">Cancelar</v-btn>
+          <v-spacer />
+          <v-btn color="primary" variant="elevated" @click="confirmMobileQty">
+            Guardar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Snackbar: producto agregado por escaneo -->
     <v-snackbar
@@ -2312,6 +2427,42 @@ function formatHNL(value: number): string {
 .mobile-fab-btn {
   box-shadow: 0 4px 14px rgba(102, 187, 106, 0.45) !important;
   min-width: 200px;
+}
+
+.scanner-mobile-cart-overlay {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 2600;
+}
+
+.scanner-floating-cart-btn {
+  backdrop-filter: blur(6px);
+}
+
+@keyframes scanner-cart-pulse {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+.scanner-floating-cart-btn--pulse {
+  animation: scanner-cart-pulse 0.45s ease;
+}
+
+.mobile-qty-chip {
+  border: none;
+  cursor: pointer;
+  border-radius: 14px;
+  padding: 4px 8px;
+  background: var(--neo-bg-alt);
+  box-shadow: var(--neo-pressed-sm);
+  color: inherit;
+}
+
+.mobile-qty-chip:hover {
+  background: rgba(var(--v-theme-primary), 0.12);
 }
 
 .gap-3 {

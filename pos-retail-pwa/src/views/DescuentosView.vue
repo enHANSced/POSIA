@@ -14,6 +14,7 @@ import {
   fetchProducts,
   type DiscountApplicationHistoryItem
 } from '@/services/database'
+import { sugerirDescuentosIA, type IASuggestionItem } from '@/services/edge-functions'
 import type { Discount, Combo, Category, Product } from '@/types/supabase'
 
 // ==================== ESTADO ====================
@@ -25,6 +26,13 @@ const combos = ref<Combo[]>([])
 const applications = ref<DiscountApplicationHistoryItem[]>([])
 const categories = ref<Category[]>([])
 const products = ref<Product[]>([])
+
+// IA
+const iaSuggestions = ref<IASuggestionItem[]>([])
+const iaLoading = ref(false)
+const iaError = ref<string | null>(null)
+const iaSummary = ref<{ total_sales: number; avg_basket: number; copurchase_pairs: number; products_without_promos: number } | null>(null)
+const showIAPanel = ref(true)
 
 // Snackbar
 const snackbar = ref(false)
@@ -413,6 +421,63 @@ async function executeDelete() {
     saving.value = false
   }
 }
+
+// ==================== IA SUGERENCIAS ====================
+async function fetchIASuggestions() {
+  iaLoading.value = true
+  iaError.value = null
+  try {
+    const res = await sugerirDescuentosIA()
+    iaSuggestions.value = res.suggestions
+    iaSummary.value = res.analysis_summary
+  } catch (err) {
+    iaError.value = err instanceof Error ? err.message : 'Error al obtener sugerencias'
+  } finally {
+    iaLoading.value = false
+  }
+}
+
+function applySuggestion(s: IASuggestionItem) {
+  if (s.type === 'discount') {
+    editingDiscount.value = null
+    discountForm.value = {
+      name: s.name,
+      description: s.description,
+      type: s.discount_type,
+      value: s.discount_value,
+      min_amount: null,
+      min_quantity: null,
+      applicable_to: s.applicable_to,
+      category_id: s.category_id,
+      product_ids: s.product_ids,
+      valid_from: '',
+      valid_until: '',
+      active: true
+    }
+    showDiscountForm.value = true
+  } else {
+    editingCombo.value = null
+    comboForm.value = {
+      name: s.name,
+      description: s.description,
+      discount_type: s.discount_type,
+      discount_value: s.discount_value,
+      product_ids: s.product_ids,
+      required_all: true,
+      min_quantity_per_product: 1,
+      max_uses_per_sale: 1,
+      valid_from: '',
+      valid_until: '',
+      active: true
+    }
+    showComboForm.value = true
+  }
+  notify(`Formulario cargado con sugerencia: ${s.name}`, 'info')
+}
+
+function getPriorityColor(p: string) {
+  return p === 'alta' ? 'error' : p === 'media' ? 'warning' : 'info'
+}
 </script>
 
 <template>
@@ -468,6 +533,178 @@ async function executeDelete() {
         </v-card>
       </v-col>
     </v-row>
+
+    <!-- ==================== PANEL IA SUGERENCIAS ==================== -->
+    <v-card class="mb-6 pa-4">
+      <div class="d-flex align-center justify-space-between mb-3">
+        <div class="d-flex align-center ga-2">
+          <div
+            class="neo-circle-sm"
+            style="background: linear-gradient(135deg, #7C4DFF, #448AFF);"
+          >
+            <v-icon color="white" size="18">mdi-robot-excited-outline</v-icon>
+          </div>
+          <div>
+            <h3 class="text-subtitle-1 font-weight-bold">Sugerencias IA</h3>
+            <p class="text-caption text-medium-emphasis">
+              Recomendaciones basadas en el historial de compras
+            </p>
+          </div>
+        </div>
+        <div class="d-flex ga-2">
+          <v-btn
+            v-if="iaSuggestions.length > 0"
+            icon
+            variant="text"
+            size="small"
+            @click="showIAPanel = !showIAPanel"
+          >
+            <v-icon>{{ showIAPanel ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
+          </v-btn>
+          <v-btn
+            color="deep-purple-accent-2"
+            variant="tonal"
+            size="small"
+            :loading="iaLoading"
+            prepend-icon="mdi-auto-fix"
+            @click="fetchIASuggestions"
+          >
+            {{ iaSuggestions.length > 0 ? 'Regenerar' : 'Generar sugerencias' }}
+          </v-btn>
+        </div>
+      </div>
+
+      <!-- Summary chips -->
+      <div v-if="iaSummary" class="d-flex flex-wrap ga-2 mb-3">
+        <v-chip size="small" variant="tonal" color="primary" prepend-icon="mdi-cart">
+          {{ iaSummary.total_sales }} ventas analizadas
+        </v-chip>
+        <v-chip size="small" variant="tonal" color="success" prepend-icon="mdi-cash">
+          Ticket promedio: L {{ iaSummary.avg_basket.toFixed(2) }}
+        </v-chip>
+        <v-chip v-if="iaSummary.copurchase_pairs > 0" size="small" variant="tonal" color="info" prepend-icon="mdi-link-variant">
+          {{ iaSummary.copurchase_pairs }} pares co-comprados
+        </v-chip>
+        <v-chip v-if="iaSummary.products_without_promos > 0" size="small" variant="tonal" color="warning" prepend-icon="mdi-tag-off">
+          {{ iaSummary.products_without_promos }} sin promoción
+        </v-chip>
+      </div>
+
+      <!-- Error -->
+      <v-alert v-if="iaError" type="error" variant="tonal" density="compact" class="mb-3" closable @click:close="iaError = null">
+        {{ iaError }}
+      </v-alert>
+
+      <!-- Loading -->
+      <div v-if="iaLoading" class="text-center py-6">
+        <v-progress-circular indeterminate color="deep-purple-accent-2" size="36" />
+        <p class="text-caption text-medium-emphasis mt-3">Analizando patrones de compra con IA...</p>
+      </div>
+
+      <!-- Empty state -->
+      <div v-else-if="iaSuggestions.length === 0 && !iaError" class="text-center py-4">
+        <v-icon size="40" color="grey-lighten-1">mdi-lightbulb-on-outline</v-icon>
+        <p class="text-body-2 text-medium-emphasis mt-2">
+          Presiona <strong>"Generar sugerencias"</strong> para que la IA analice<br>tus ventas y recomiende descuentos y combos.
+        </p>
+      </div>
+
+      <!-- Suggestions list -->
+      <v-expand-transition>
+        <div v-if="iaSuggestions.length > 0 && showIAPanel">
+          <v-row>
+            <v-col
+              v-for="(s, idx) in iaSuggestions"
+              :key="idx"
+              cols="12"
+              md="6"
+            >
+              <v-card variant="outlined" class="pa-3 h-100">
+                <div class="d-flex align-start justify-space-between mb-2">
+                  <div class="d-flex align-center ga-2">
+                    <v-icon
+                      :color="s.type === 'combo' ? 'deep-purple' : 'green'"
+                      size="20"
+                    >
+                      {{ s.type === 'combo' ? 'mdi-package-variant' : 'mdi-percent' }}
+                    </v-icon>
+                    <div>
+                      <span class="text-subtitle-2 font-weight-bold">{{ s.name }}</span>
+                      <div v-if="s.description" class="text-caption text-medium-emphasis">{{ s.description }}</div>
+                    </div>
+                  </div>
+                  <v-chip
+                    :color="getPriorityColor(s.priority)"
+                    size="x-small"
+                    variant="tonal"
+                    class="ml-2"
+                  >
+                    {{ s.priority }}
+                  </v-chip>
+                </div>
+
+                <!-- Value -->
+                <div class="neo-card-pressed pa-2 rounded-lg mb-2">
+                  <div class="d-flex justify-space-between align-center">
+                    <span class="text-caption text-medium-emphasis">
+                      {{ s.type === 'combo' ? 'Combo' : 'Descuento' }}
+                    </span>
+                    <span class="text-subtitle-1 font-weight-bold text-primary">
+                      {{ s.discount_type === 'percentage' ? `${s.discount_value}%` : `L ${s.discount_value.toFixed(2)}` }}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Reason -->
+                <div class="d-flex align-start ga-1 mb-2">
+                  <v-icon size="14" color="deep-purple-accent-2" class="mt-1">mdi-robot</v-icon>
+                  <span class="text-caption" style="line-height: 1.4;">{{ s.reason }}</span>
+                </div>
+
+                <!-- Products/Category -->
+                <div v-if="s.product_names.length > 0" class="mb-2">
+                  <v-chip
+                    v-for="pn in s.product_names.slice(0, 4)"
+                    :key="pn"
+                    size="x-small"
+                    variant="tonal"
+                    color="primary"
+                    class="mr-1 mb-1"
+                  >
+                    {{ pn }}
+                  </v-chip>
+                  <v-chip v-if="s.product_names.length > 4" size="x-small" variant="tonal">
+                    +{{ s.product_names.length - 4 }} más
+                  </v-chip>
+                </div>
+                <div v-else-if="s.category_name" class="mb-2">
+                  <v-chip size="x-small" variant="tonal" color="secondary" prepend-icon="mdi-shape">
+                    {{ s.category_name }}
+                  </v-chip>
+                </div>
+
+                <!-- Impact -->
+                <div v-if="s.estimated_impact" class="text-caption text-medium-emphasis mb-2">
+                  <v-icon size="12" class="mr-1">mdi-trending-up</v-icon>{{ s.estimated_impact }}
+                </div>
+
+                <!-- Apply button -->
+                <v-btn
+                  color="deep-purple-accent-2"
+                  variant="tonal"
+                  size="small"
+                  block
+                  prepend-icon="mdi-plus-circle-outline"
+                  @click="applySuggestion(s)"
+                >
+                  Aplicar sugerencia
+                </v-btn>
+              </v-card>
+            </v-col>
+          </v-row>
+        </div>
+      </v-expand-transition>
+    </v-card>
 
     <!-- Tabs -->
     <v-card class="mb-6">

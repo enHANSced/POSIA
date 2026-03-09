@@ -361,3 +361,54 @@ export async function sincronizarEmpleados(): Promise<SincronizarEmpleadosRespon
 
   return data as SincronizarEmpleadosResponse
 }
+
+// ==================== SUGERENCIAS IA PARA DESCUENTOS ====================
+
+export interface IASuggestionItem {
+  type: 'discount' | 'combo'
+  name: string
+  description: string
+  reason: string
+  discount_type: 'percentage' | 'fixed'
+  discount_value: number
+  applicable_to: 'all' | 'category' | 'product'
+  category_id: string | null
+  category_name: string | null
+  product_ids: string[]
+  product_names: string[]
+  priority: 'alta' | 'media' | 'baja'
+  estimated_impact: string
+}
+
+export interface SugerirDescuentosResponse {
+  success: boolean
+  suggestions: IASuggestionItem[]
+  analysis_summary: {
+    total_sales: number
+    avg_basket: number
+    top_products_count: number
+    copurchase_pairs: number
+    products_without_promos: number
+  }
+}
+
+/**
+ * Solicita sugerencias de descuentos y combos al agente IA
+ * basado en el análisis de patrones de compra.
+ */
+export async function sugerirDescuentosIA(): Promise<SugerirDescuentosResponse> {
+  const { data, error } = await supabase.functions.invoke('sugerir-descuentos', {
+    body: {},
+  })
+
+  if (error) {
+    const msg = data?.error || error.message || 'Error al obtener sugerencias de IA'
+    throw new Error(msg)
+  }
+
+  if (data?.error) {
+    throw new Error(data.error)
+  }
+
+  return data as SugerirDescuentosResponse
+}

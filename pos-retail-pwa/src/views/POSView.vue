@@ -654,6 +654,10 @@ function iaAddToCart(product: any) {
   carritoStore.addItem(product)
   setLastAdded(product.id)
 
+  // Limpiar resultados IA
+  iaMatchedProducts.value = []
+  iaRecognitionError.value = ''
+
   // Snackbar
   if (snackbarTimer) clearTimeout(snackbarTimer)
   scanSnackbarText.value = product.name

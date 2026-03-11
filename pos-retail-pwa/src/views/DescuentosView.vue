@@ -32,7 +32,7 @@ const iaSuggestions = ref<IASuggestionItem[]>([])
 const iaLoading = ref(false)
 const iaError = ref<string | null>(null)
 const iaSummary = ref<{ total_sales: number; avg_basket: number; copurchase_pairs: number; products_without_promos: number } | null>(null)
-const showIAPanel = ref(true)
+const showIADialog = ref(false)
 
 // Snackbar
 const snackbar = ref(false)
@@ -495,6 +495,20 @@ function getPriorityColor(p: string) {
       </div>
       <div class="d-flex ga-2">
         <v-btn
+          color="deep-purple-accent-2"
+          @click="showIADialog = true"
+        >
+          <v-icon start>mdi-robot-excited-outline</v-icon>
+          Sugerencias IA
+          <v-badge
+            v-if="iaSuggestions.length > 0"
+            :content="iaSuggestions.length"
+            color="white"
+            text-color="deep-purple-accent-2"
+            floating
+          />
+        </v-btn>
+        <v-btn
           icon
           variant="text"
           :loading="loading"
@@ -534,197 +548,41 @@ function getPriorityColor(p: string) {
       </v-col>
     </v-row>
 
-    <!-- ==================== PANEL IA SUGERENCIAS ==================== -->
-    <v-card class="mb-6 pa-4">
-      <div class="d-flex align-center justify-space-between mb-3">
-        <div class="d-flex align-center ga-2">
-          <div
-            class="neo-circle-sm"
-            style="background: linear-gradient(135deg, #7C4DFF, #448AFF);"
-          >
-            <v-icon color="white" size="18">mdi-robot-excited-outline</v-icon>
-          </div>
-          <div>
-            <h3 class="text-subtitle-1 font-weight-bold">Sugerencias IA</h3>
-            <p class="text-caption text-medium-emphasis">
-              Recomendaciones basadas en el historial de compras
-            </p>
-          </div>
-        </div>
-        <div class="d-flex ga-2">
-          <v-btn
-            v-if="iaSuggestions.length > 0"
-            icon
-            variant="text"
-            size="small"
-            @click="showIAPanel = !showIAPanel"
-          >
-            <v-icon>{{ showIAPanel ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
-          </v-btn>
-          <v-btn
-            color="deep-purple-accent-2"
-            variant="tonal"
-            size="small"
-            :loading="iaLoading"
-            prepend-icon="mdi-auto-fix"
-            @click="fetchIASuggestions"
-          >
-            {{ iaSuggestions.length > 0 ? 'Regenerar' : 'Generar sugerencias' }}
-          </v-btn>
-        </div>
-      </div>
-
-      <!-- Summary chips -->
-      <div v-if="iaSummary" class="d-flex flex-wrap ga-2 mb-3">
-        <v-chip size="small" variant="tonal" color="primary" prepend-icon="mdi-cart">
-          {{ iaSummary.total_sales }} ventas analizadas
-        </v-chip>
-        <v-chip size="small" variant="tonal" color="success" prepend-icon="mdi-cash">
-          Ticket promedio: L {{ iaSummary.avg_basket.toFixed(2) }}
-        </v-chip>
-        <v-chip v-if="iaSummary.copurchase_pairs > 0" size="small" variant="tonal" color="info" prepend-icon="mdi-link-variant">
-          {{ iaSummary.copurchase_pairs }} pares co-comprados
-        </v-chip>
-        <v-chip v-if="iaSummary.products_without_promos > 0" size="small" variant="tonal" color="warning" prepend-icon="mdi-tag-off">
-          {{ iaSummary.products_without_promos }} sin promoción
-        </v-chip>
-      </div>
-
-      <!-- Error -->
-      <v-alert v-if="iaError" type="error" variant="tonal" density="compact" class="mb-3" closable @click:close="iaError = null">
-        {{ iaError }}
-      </v-alert>
-
-      <!-- Loading -->
-      <div v-if="iaLoading" class="text-center py-6">
-        <v-progress-circular indeterminate color="deep-purple-accent-2" size="36" />
-        <p class="text-caption text-medium-emphasis mt-3">Analizando patrones de compra con IA...</p>
-      </div>
-
-      <!-- Empty state -->
-      <div v-else-if="iaSuggestions.length === 0 && !iaError" class="text-center py-4">
-        <v-icon size="40" color="grey-lighten-1">mdi-lightbulb-on-outline</v-icon>
-        <p class="text-body-2 text-medium-emphasis mt-2">
-          Presiona <strong>"Generar sugerencias"</strong> para que la IA analice<br>tus ventas y recomiende descuentos y combos.
-        </p>
-      </div>
-
-      <!-- Suggestions list -->
-      <v-expand-transition>
-        <div v-if="iaSuggestions.length > 0 && showIAPanel">
-          <v-row>
-            <v-col
-              v-for="(s, idx) in iaSuggestions"
-              :key="idx"
-              cols="12"
-              md="6"
-            >
-              <v-card variant="outlined" class="pa-3 h-100">
-                <div class="d-flex align-start justify-space-between mb-2">
-                  <div class="d-flex align-center ga-2">
-                    <v-icon
-                      :color="s.type === 'combo' ? 'deep-purple' : 'green'"
-                      size="20"
-                    >
-                      {{ s.type === 'combo' ? 'mdi-package-variant' : 'mdi-percent' }}
-                    </v-icon>
-                    <div>
-                      <span class="text-subtitle-2 font-weight-bold">{{ s.name }}</span>
-                      <div v-if="s.description" class="text-caption text-medium-emphasis">{{ s.description }}</div>
-                    </div>
-                  </div>
-                  <v-chip
-                    :color="getPriorityColor(s.priority)"
-                    size="x-small"
-                    variant="tonal"
-                    class="ml-2"
-                  >
-                    {{ s.priority }}
-                  </v-chip>
-                </div>
-
-                <!-- Value -->
-                <div class="neo-card-pressed pa-2 rounded-lg mb-2">
-                  <div class="d-flex justify-space-between align-center">
-                    <span class="text-caption text-medium-emphasis">
-                      {{ s.type === 'combo' ? 'Combo' : 'Descuento' }}
-                    </span>
-                    <span class="text-subtitle-1 font-weight-bold text-primary">
-                      {{ s.discount_type === 'percentage' ? `${s.discount_value}%` : `L ${s.discount_value.toFixed(2)}` }}
-                    </span>
-                  </div>
-                </div>
-
-                <!-- Reason -->
-                <div class="d-flex align-start ga-1 mb-2">
-                  <v-icon size="14" color="deep-purple-accent-2" class="mt-1">mdi-robot</v-icon>
-                  <span class="text-caption" style="line-height: 1.4;">{{ s.reason }}</span>
-                </div>
-
-                <!-- Products/Category -->
-                <div v-if="s.product_names.length > 0" class="mb-2">
-                  <v-chip
-                    v-for="pn in s.product_names.slice(0, 4)"
-                    :key="pn"
-                    size="x-small"
-                    variant="tonal"
-                    color="primary"
-                    class="mr-1 mb-1"
-                  >
-                    {{ pn }}
-                  </v-chip>
-                  <v-chip v-if="s.product_names.length > 4" size="x-small" variant="tonal">
-                    +{{ s.product_names.length - 4 }} más
-                  </v-chip>
-                </div>
-                <div v-else-if="s.category_name" class="mb-2">
-                  <v-chip size="x-small" variant="tonal" color="secondary" prepend-icon="mdi-shape">
-                    {{ s.category_name }}
-                  </v-chip>
-                </div>
-
-                <!-- Impact -->
-                <div v-if="s.estimated_impact" class="text-caption text-medium-emphasis mb-2">
-                  <v-icon size="12" class="mr-1">mdi-trending-up</v-icon>{{ s.estimated_impact }}
-                </div>
-
-                <!-- Apply button -->
-                <v-btn
-                  color="deep-purple-accent-2"
-                  variant="tonal"
-                  size="small"
-                  block
-                  prepend-icon="mdi-plus-circle-outline"
-                  @click="applySuggestion(s)"
-                >
-                  Aplicar sugerencia
-                </v-btn>
-              </v-card>
-            </v-col>
-          </v-row>
-        </div>
-      </v-expand-transition>
-    </v-card>
-
-    <!-- Tabs -->
-    <v-card class="mb-6">
-      <v-tabs v-model="tab" color="primary" grow>
-        <v-tab value="descuentos">
-          <v-icon start>mdi-percent</v-icon>
-          Descuentos
-          <v-badge :content="String(totalDescuentosActivos)" color="primary" inline class="ml-2" />
-        </v-tab>
-        <v-tab value="combos">
-          <v-icon start>mdi-package-variant</v-icon>
-          Combos
-          <v-badge :content="String(totalCombosActivos)" color="info" inline class="ml-2" />
-        </v-tab>
-        <v-tab value="historial">
-          <v-icon start>mdi-history</v-icon>
-          Historial
-        </v-tab>
-      </v-tabs>
-    </v-card>
+    <!-- ==================== TABS NEOMÓRFICAS ==================== -->
+    <div class="neo-card-pressed pa-2 rounded-xl d-flex align-center ga-2 mb-6" style="overflow-x: auto;">
+      <v-btn
+        :variant="tab === 'descuentos' ? 'flat' : 'text'"
+        color="transparent"
+        :class="tab === 'descuentos' ? 'text-primary font-weight-bold' : 'text-medium-emphasis'"
+        class="flex-grow-1 rounded-lg"
+        @click="tab = 'descuentos'"
+      >
+        <v-icon start>mdi-percent</v-icon>
+        Descuentos
+        <v-badge :content="String(totalDescuentosActivos)" color="primary" inline class="ml-2" />
+      </v-btn>
+      <v-btn
+        :variant="tab === 'combos' ? 'flat' : 'text'"
+        color="transparent"
+        :class="tab === 'combos' ? 'text-info font-weight-bold' : 'text-medium-emphasis'"
+        class="flex-grow-1 rounded-lg"
+        @click="tab = 'combos'"
+      >
+        <v-icon start>mdi-package-variant</v-icon>
+        Combos
+        <v-badge :content="String(totalCombosActivos)" color="info" inline class="ml-2" />
+      </v-btn>
+      <v-btn
+        :variant="tab === 'historial' ? 'flat' : 'text'"
+        color="transparent"
+        :class="tab === 'historial' ? 'text-success font-weight-bold' : 'text-medium-emphasis'"
+        class="flex-grow-1 rounded-lg"
+        @click="tab = 'historial'"
+      >
+        <v-icon start>mdi-history</v-icon>
+        Historial
+      </v-btn>
+    </div>
 
     <!-- Loading -->
     <div v-if="loading && discounts.length === 0" class="text-center py-12">
@@ -734,7 +592,7 @@ function getPriorityColor(p: string) {
 
     <!-- ==================== TAB DESCUENTOS ==================== -->
     <template v-else-if="tab === 'descuentos'">
-      <!-- Toolbar -->
+      <!-- Toolbar Descuentos -->
       <v-card class="mb-4 pa-4">
         <v-row dense align="center">
           <v-col cols="12" md="5">
@@ -744,19 +602,21 @@ function getPriorityColor(p: string) {
               prepend-inner-icon="mdi-magnify"
               clearable
               hide-details
+              variant="outlined"
             />
           </v-col>
-          <v-col cols="6" md="3">
-            <v-switch
-              v-model="showInactive"
-              label="Mostrar inactivos"
-              color="primary"
-              hide-details
-              density="compact"
-            />
+          <v-col cols="12" md="4">
+            <div class="d-flex align-center justify-md-end h-100" style="cursor: pointer;" @click="showInactive = !showInactive">
+              <span class="text-body-2 mr-3 font-weight-medium" :class="showInactive ? 'text-primary' : 'text-medium-emphasis'">
+                Mostrar inactivos
+              </span>
+              <div class="neo-switch" :class="{ 'is-active': showInactive }">
+                <div class="neo-switch-knob"></div>
+              </div>
+            </div>
           </v-col>
-          <v-col cols="6" md="4" class="text-right">
-            <v-btn color="primary" prepend-icon="mdi-plus" @click="openNewDiscount">
+          <v-col cols="12" md="3" class="text-right">
+            <v-btn color="primary" block prepend-icon="mdi-plus" @click="openNewDiscount">
               Nuevo Descuento
             </v-btn>
           </v-col>
@@ -869,7 +729,7 @@ function getPriorityColor(p: string) {
 
     <!-- ==================== TAB COMBOS ==================== -->
     <template v-else-if="tab === 'combos'">
-      <!-- Toolbar -->
+      <!-- Toolbar Combos -->
       <v-card class="mb-4 pa-4">
         <v-row dense align="center">
           <v-col cols="12" md="5">
@@ -879,19 +739,21 @@ function getPriorityColor(p: string) {
               prepend-inner-icon="mdi-magnify"
               clearable
               hide-details
+              variant="outlined"
             />
           </v-col>
-          <v-col cols="6" md="3">
-            <v-switch
-              v-model="showInactive"
-              label="Mostrar inactivos"
-              color="primary"
-              hide-details
-              density="compact"
-            />
+          <v-col cols="12" md="4">
+            <div class="d-flex align-center justify-md-end h-100" style="cursor: pointer;" @click="showInactive = !showInactive">
+              <span class="text-body-2 mr-3 font-weight-medium" :class="showInactive ? 'text-primary' : 'text-medium-emphasis'">
+                Mostrar inactivos
+              </span>
+              <div class="neo-switch" :class="{ 'is-active': showInactive }">
+                <div class="neo-switch-knob"></div>
+              </div>
+            </div>
           </v-col>
-          <v-col cols="6" md="4" class="text-right">
-            <v-btn color="primary" prepend-icon="mdi-plus" @click="openNewCombo">
+          <v-col cols="12" md="3" class="text-right">
+            <v-btn color="primary" block prepend-icon="mdi-plus" @click="openNewCombo">
               Nuevo Combo
             </v-btn>
           </v-col>
@@ -1077,6 +939,7 @@ function getPriorityColor(p: string) {
               label="Nombre del descuento"
               :rules="nameRules"
               prepend-inner-icon="mdi-tag"
+              variant="outlined"
               class="mb-3"
             />
 
@@ -1085,6 +948,7 @@ function getPriorityColor(p: string) {
               label="Descripción (opcional)"
               rows="2"
               prepend-inner-icon="mdi-text"
+              variant="outlined"
               class="mb-3"
             />
 
@@ -1098,6 +962,7 @@ function getPriorityColor(p: string) {
                     { title: 'Monto fijo (L)', value: 'fixed' }
                   ]"
                   prepend-inner-icon="mdi-calculator"
+                  variant="outlined"
                 />
               </v-col>
               <v-col cols="6">
@@ -1108,6 +973,7 @@ function getPriorityColor(p: string) {
                   :rules="discountForm.type === 'percentage' ? percentRules : valueRules"
                   :suffix="discountForm.type === 'percentage' ? '%' : 'L'"
                   prepend-inner-icon="mdi-numeric"
+                  variant="outlined"
                 />
               </v-col>
             </v-row>
@@ -1121,6 +987,7 @@ function getPriorityColor(p: string) {
                 { title: 'Productos específicos', value: 'product' }
               ]"
               prepend-inner-icon="mdi-filter-variant"
+              variant="outlined"
               class="mb-3"
             />
 
@@ -1130,6 +997,7 @@ function getPriorityColor(p: string) {
               label="Categoría"
               :items="categories.map(c => ({ title: c.name, value: c.id }))"
               prepend-inner-icon="mdi-shape"
+              variant="outlined"
               class="mb-3"
             />
 
@@ -1142,6 +1010,7 @@ function getPriorityColor(p: string) {
               chips
               closable-chips
               prepend-inner-icon="mdi-package-variant"
+              variant="outlined"
               class="mb-3"
             />
 
@@ -1155,6 +1024,7 @@ function getPriorityColor(p: string) {
                   clearable
                   hint="Subtotal mínimo para aplicar"
                   persistent-hint
+                  variant="outlined"
                 />
               </v-col>
               <v-col cols="6">
@@ -1166,6 +1036,7 @@ function getPriorityColor(p: string) {
                   clearable
                   hint="Productos mín. en carrito"
                   persistent-hint
+                  variant="outlined"
                 />
               </v-col>
             </v-row>
@@ -1177,6 +1048,7 @@ function getPriorityColor(p: string) {
                   label="Válido desde (opcional)"
                   type="date"
                   prepend-inner-icon="mdi-calendar-start"
+                  variant="outlined"
                 />
               </v-col>
               <v-col cols="6">
@@ -1185,16 +1057,22 @@ function getPriorityColor(p: string) {
                   label="Válido hasta (opcional)"
                   type="date"
                   prepend-inner-icon="mdi-calendar-end"
+                  variant="outlined"
                 />
               </v-col>
             </v-row>
 
-            <v-switch
-              v-model="discountForm.active"
-              label="Activo inmediatamente"
-              color="success"
-              hide-details
-            />
+            <div class="d-flex align-center justify-space-between mt-4">
+              <span class="text-body-2 font-weight-medium">Estado del descuento</span>
+              <div class="d-flex align-center" style="cursor: pointer;" @click="discountForm.active = !discountForm.active">
+                <span class="text-caption mr-3 font-weight-bold" :class="discountForm.active ? 'text-success' : 'text-error'">
+                  {{ discountForm.active ? 'Activo' : 'Inactivo' }}
+                </span>
+                <div class="neo-switch" :class="{ 'is-active': discountForm.active }">
+                  <div class="neo-switch-knob"></div>
+                </div>
+              </div>
+            </div>
           </v-form>
         </v-card-text>
 
@@ -1234,6 +1112,7 @@ function getPriorityColor(p: string) {
               label="Nombre del combo"
               :rules="nameRules"
               prepend-inner-icon="mdi-tag"
+              variant="outlined"
               class="mb-3"
             />
 
@@ -1242,6 +1121,7 @@ function getPriorityColor(p: string) {
               label="Descripción (opcional)"
               rows="2"
               prepend-inner-icon="mdi-text"
+              variant="outlined"
               class="mb-3"
             />
 
@@ -1256,6 +1136,7 @@ function getPriorityColor(p: string) {
               prepend-inner-icon="mdi-package-variant"
               hint="Selecciona al menos 2 productos"
               persistent-hint
+              variant="outlined"
               class="mb-3"
             />
 
@@ -1269,6 +1150,7 @@ function getPriorityColor(p: string) {
                     { title: 'Monto fijo (L)', value: 'fixed' }
                   ]"
                   prepend-inner-icon="mdi-calculator"
+                  variant="outlined"
                 />
               </v-col>
               <v-col cols="6">
@@ -1279,35 +1161,42 @@ function getPriorityColor(p: string) {
                   :rules="comboForm.discount_type === 'percentage' ? percentRules : valueRules"
                   :suffix="comboForm.discount_type === 'percentage' ? '%' : 'L'"
                   prepend-inner-icon="mdi-numeric"
+                  variant="outlined"
                 />
               </v-col>
             </v-row>
 
-            <v-switch
-              v-model="comboForm.required_all"
-              label="Requiere todos los productos del combo"
-              color="primary"
-              hide-details
-              class="mb-3"
-            />
+            <div class="d-flex align-center justify-space-between mb-4 mt-2">
+              <span class="text-body-2 font-weight-medium">Requiere todos los productos</span>
+              <div class="d-flex align-center" style="cursor: pointer;" @click="comboForm.required_all = !comboForm.required_all">
+                <span class="text-caption mr-3 font-weight-bold" :class="comboForm.required_all ? 'text-primary' : 'text-medium-emphasis'">
+                  {{ comboForm.required_all ? 'Sí' : 'No' }}
+                </span>
+                <div class="neo-switch" :class="{ 'is-active': comboForm.required_all }">
+                  <div class="neo-switch-knob"></div>
+                </div>
+              </div>
+            </div>
 
             <v-row dense class="mb-3">
               <v-col cols="6">
                 <v-text-field
                   v-model.number="comboForm.min_quantity_per_product"
-                  label="Cantidad mín. por producto"
+                  label="Cantidad mín/prod"
                   type="number"
                   min="1"
                   prepend-inner-icon="mdi-counter"
+                  variant="outlined"
                 />
               </v-col>
               <v-col cols="6">
                 <v-text-field
                   v-model.number="comboForm.max_uses_per_sale"
-                  label="Usos máx. por venta"
+                  label="Usos máx/venta"
                   type="number"
                   min="1"
                   prepend-inner-icon="mdi-repeat"
+                  variant="outlined"
                 />
               </v-col>
             </v-row>
@@ -1316,27 +1205,34 @@ function getPriorityColor(p: string) {
               <v-col cols="6">
                 <v-text-field
                   v-model="comboForm.valid_from"
-                  label="Válido desde (opcional)"
+                  label="Válido desde"
                   type="date"
                   prepend-inner-icon="mdi-calendar-start"
+                  variant="outlined"
                 />
               </v-col>
               <v-col cols="6">
                 <v-text-field
                   v-model="comboForm.valid_until"
-                  label="Válido hasta (opcional)"
+                  label="Válido hasta"
                   type="date"
                   prepend-inner-icon="mdi-calendar-end"
+                  variant="outlined"
                 />
               </v-col>
             </v-row>
 
-            <v-switch
-              v-model="comboForm.active"
-              label="Activo inmediatamente"
-              color="success"
-              hide-details
-            />
+            <div class="d-flex align-center justify-space-between mt-4 mb-2">
+              <span class="text-body-2 font-weight-medium">Estado del combo</span>
+              <div class="d-flex align-center" style="cursor: pointer;" @click="comboForm.active = !comboForm.active">
+                <span class="text-caption mr-3 font-weight-bold" :class="comboForm.active ? 'text-success' : 'text-error'">
+                  {{ comboForm.active ? 'Activo' : 'Inactivo' }}
+                </span>
+                <div class="neo-switch" :class="{ 'is-active': comboForm.active }">
+                  <div class="neo-switch-knob"></div>
+                </div>
+              </div>
+            </div>
           </v-form>
         </v-card-text>
 
@@ -1381,6 +1277,170 @@ function getPriorityColor(p: string) {
       </v-card>
     </v-dialog>
 
+    <!-- ==================== DIÁLOGO: SUGERENCIAS IA ==================== -->
+    <v-dialog v-model="showIADialog" max-width="800">
+      <v-card>
+        <div class="pa-6 pb-4">
+          <div class="d-flex align-center justify-space-between mb-4">
+            <div class="d-flex align-center ga-3">
+              <div
+                class="neo-circle-sm"
+                style="background: linear-gradient(135deg, #7C4DFF, #448AFF);"
+              >
+                <v-icon color="white" size="20">mdi-robot-excited-outline</v-icon>
+              </div>
+              <div>
+                <h3 class="text-h6 font-weight-bold">Sugerencias IA</h3>
+                <p class="text-caption text-medium-emphasis">
+                  Recomendaciones basadas en el historial de compras
+                </p>
+              </div>
+            </div>
+            <v-btn icon="mdi-close" variant="text" @click="showIADialog = false" />
+          </div>
+
+          <div class="d-flex align-center justify-space-between mb-4">
+            <!-- Summary chips -->
+            <div v-if="iaSummary" class="d-flex flex-wrap ga-2">
+              <v-chip size="small" variant="tonal" color="primary" prepend-icon="mdi-cart">
+                {{ iaSummary.total_sales }} ventas analizadas
+              </v-chip>
+              <v-chip size="small" variant="tonal" color="success" prepend-icon="mdi-cash">
+                Ticket prom: L {{ iaSummary.avg_basket.toFixed(2) }}
+              </v-chip>
+              <v-chip v-if="iaSummary.copurchase_pairs > 0" size="small" variant="tonal" color="info" prepend-icon="mdi-link-variant">
+                {{ iaSummary.copurchase_pairs }} pares co-comprados
+              </v-chip>
+            </div>
+            <div v-else></div>
+
+            <v-btn
+              color="deep-purple-accent-2"
+              variant="elevated"
+              size="small"
+              :loading="iaLoading"
+              prepend-icon="mdi-auto-fix"
+              @click="fetchIASuggestions"
+            >
+              {{ iaSuggestions.length > 0 ? 'Regenerar' : 'Generar' }}
+            </v-btn>
+          </div>
+
+          <!-- Error -->
+          <v-alert v-if="iaError" type="error" variant="tonal" density="compact" class="mb-3" closable @click:close="iaError = null">
+            {{ iaError }}
+          </v-alert>
+
+          <!-- Loading -->
+          <div v-if="iaLoading" class="text-center py-8">
+            <v-progress-circular indeterminate color="deep-purple-accent-2" size="48" />
+            <p class="text-body-2 text-medium-emphasis mt-4">Analizando patrones de compra con IA...</p>
+          </div>
+
+          <!-- Empty state -->
+          <div v-else-if="iaSuggestions.length === 0 && !iaError" class="text-center py-8">
+            <div class="neo-circle mx-auto mb-4" style="background: var(--neo-bg-alt);">
+              <v-icon size="32" color="medium-emphasis">mdi-lightbulb-on-outline</v-icon>
+            </div>
+            <p class="text-body-1 text-medium-emphasis">
+              Presiona <strong>"Generar"</strong> para que la IA analice<br>tus ventas y recomiende estrategias.
+            </p>
+          </div>
+
+          <!-- Suggestions list -->
+          <div v-if="iaSuggestions.length > 0" style="max-height: 60vh; overflow-y: auto;" class="pr-2">
+            <v-row>
+              <v-col
+                v-for="(s, idx) in iaSuggestions"
+                :key="idx"
+                cols="12"
+                md="6"
+              >
+                <v-card class="pa-4 h-100 neo-card-raised">
+                  <div class="d-flex align-start justify-space-between mb-3">
+                    <div class="d-flex align-center ga-2">
+                      <div class="neo-circle-sm" :style="{ background: s.type === 'combo' ? 'linear-gradient(135deg, #7C4DFF, #B388FF)' : 'linear-gradient(135deg, #4CAF50, #66BB6A)' }">
+                        <v-icon color="white" size="18">
+                          {{ s.type === 'combo' ? 'mdi-package-variant' : 'mdi-percent' }}
+                        </v-icon>
+                      </div>
+                      <div>
+                        <span class="text-button font-weight-bold d-block lh-tight">{{ s.name }}</span>
+                        <div v-if="s.description" class="text-caption text-medium-emphasis d-block text-truncate" style="max-width: 150px;">{{ s.description }}</div>
+                      </div>
+                    </div>
+                    <v-chip
+                      :color="getPriorityColor(s.priority)"
+                      size="small"
+                      variant="elevated"
+                    >
+                      {{ s.priority }}
+                    </v-chip>
+                  </div>
+
+                  <!-- Value -->
+                  <div class="neo-card-pressed pa-2 rounded-lg mb-3">
+                    <div class="d-flex justify-space-between align-center px-1">
+                      <span class="text-caption text-medium-emphasis font-weight-medium">
+                        {{ s.type === 'combo' ? 'Combo' : 'Descuento' }}
+                      </span>
+                      <span class="text-body-2 font-weight-bold text-primary">
+                        {{ s.discount_type === 'percentage' ? `${s.discount_value}%` : `L ${s.discount_value.toFixed(2)}` }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Reason -->
+                  <div class="d-flex align-start ga-2 mb-3 px-1">
+                    <v-icon size="16" color="deep-purple-accent-2" class="mt-1">mdi-robot</v-icon>
+                    <span class="text-caption text-medium-emphasis" style="line-height: 1.4;">{{ s.reason }}</span>
+                  </div>
+
+                  <!-- Products/Category -->
+                  <div v-if="s.product_names.length > 0" class="mb-3">
+                    <v-chip
+                      v-for="pn in s.product_names.slice(0, 3)"
+                      :key="pn"
+                      size="x-small"
+                      variant="tonal"
+                      color="primary"
+                      class="mr-1 mb-1"
+                    >
+                      {{ pn }}
+                    </v-chip>
+                    <v-chip v-if="s.product_names.length > 3" size="x-small" variant="tonal" class="mb-1">
+                      +{{ s.product_names.length - 3 }} más
+                    </v-chip>
+                  </div>
+                  <div v-else-if="s.category_name" class="mb-3">
+                    <v-chip size="small" variant="tonal" color="secondary" prepend-icon="mdi-shape">
+                      {{ s.category_name }}
+                    </v-chip>
+                  </div>
+
+                  <!-- Impact -->
+                  <div v-if="s.estimated_impact" class="text-caption text-success font-weight-medium flex-grow-1 align-content-end mb-3">
+                    <v-icon size="14" class="mr-1">mdi-trending-up</v-icon>{{ s.estimated_impact }}
+                  </div>
+
+                  <!-- Apply button -->
+                  <v-btn
+                    color="deep-purple-accent-2"
+                    variant="tonal"
+                    block
+                    prepend-icon="mdi-plus-circle-outline"
+                    @click="applySuggestion(s); showIADialog = false"
+                  >
+                    Usar esquema
+                  </v-btn>
+                </v-card>
+              </v-col>
+            </v-row>
+          </div>
+        </div>
+      </v-card>
+    </v-dialog>
+
     <!-- Snackbar -->
     <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="3000" location="bottom right">
       {{ snackbarText }}
@@ -1413,5 +1473,33 @@ function getPriorityColor(p: string) {
 
 .opacity-60 {
   opacity: 0.6;
+}
+
+/* Custom Neumorphic Switch */
+.neo-switch {
+  width: 52px;
+  height: 28px;
+  border-radius: 14px;
+  background-color: var(--neo-bg-alt);
+  box-shadow: var(--neo-pressed);
+  position: relative;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.neo-switch-knob {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: var(--neo-bg);
+  box-shadow: var(--neo-raised-sm);
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+.neo-switch.is-active .neo-switch-knob {
+  transform: translateX(24px);
 }
 </style>

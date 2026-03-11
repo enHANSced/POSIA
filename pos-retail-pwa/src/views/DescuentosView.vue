@@ -495,7 +495,8 @@ function getPriorityColor(p: string) {
       </div>
       <div class="d-flex ga-2">
         <v-btn
-          color="deep-purple-accent-2"
+          color="rgba(124, 77, 255,0.1)"
+          size="large"
           @click="showIADialog = true"
         >
           <v-icon start>mdi-robot-excited-outline</v-icon>
@@ -1278,7 +1279,7 @@ function getPriorityColor(p: string) {
     </v-dialog>
 
     <!-- ==================== DIÁLOGO: SUGERENCIAS IA ==================== -->
-    <v-dialog v-model="showIADialog" max-width="800">
+    <v-dialog v-model="showIADialog" max-width="900">
       <v-card>
         <div class="pa-6 pb-4">
           <div class="d-flex align-center justify-space-between mb-4">

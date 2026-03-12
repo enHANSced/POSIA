@@ -479,12 +479,51 @@ export interface Database {
         }
         Relationships: []
       }
+      daily_sales_summary: {
+        Row: {
+          avg_ticket: number | null
+          fecha: string | null
+          total_discount: number | null
+          total_revenue: number | null
+          total_sales: number | null
+          total_tax: number | null
+        }
+        Relationships: []
+      }
       discount_impact_daily: {
         Row: {
           discount_percent_of_revenue: number | null
           fecha: string | null
           sales_with_discount: number | null
           total_discount_amount: number | null
+          total_revenue: number | null
+          total_sales: number | null
+        }
+        Relationships: []
+      }
+      sales_by_hour: {
+        Row: {
+          hora: number | null
+          revenue: number | null
+          ventas: number | null
+        }
+        Relationships: []
+      }
+      seller_rankings: {
+        Row: {
+          avg_ticket: number | null
+          last_sale_at: string | null
+          seller_email: string | null
+          seller_id: string | null
+          seller_name: string | null
+          total_revenue: number | null
+          total_sales: number | null
+        }
+        Relationships: []
+      }
+      sales_by_payment_method: {
+        Row: {
+          payment_method: string | null
           total_revenue: number | null
           total_sales: number | null
         }

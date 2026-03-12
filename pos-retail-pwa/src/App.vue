@@ -56,6 +56,13 @@ const notificationsDrawer = ref(false)
 const canUseIA = computed(() => authStore.isAdmin)
 const assistantTeaserIndex = ref(0)
 let assistantTeaserTimer: ReturnType<typeof setInterval> | null = null
+const defaultAssistantTeaser: AssistantTeaser = {
+  id: 'fallback',
+  label: 'Asistente IA',
+  title: 'Asistente IA',
+  body: 'Puedo ayudarte con ventas, inventario y reportes.',
+  icon: 'mdi-robot-happy-outline'
+}
 
 const saludoAsistente = computed(() => {
   const hora = new Date().getHours()
@@ -96,8 +103,10 @@ const assistantTeasers = computed<AssistantTeaser[]>(() => [
   }
 ])
 
-const activeAssistantTeaser = computed(() => {
-  return assistantTeasers.value[assistantTeaserIndex.value] ?? assistantTeasers.value[0]
+const activeAssistantTeaser = computed<AssistantTeaser>(() => {
+  return assistantTeasers.value[assistantTeaserIndex.value]
+    ?? assistantTeasers.value[0]
+    ?? defaultAssistantTeaser
 })
 
 function stopAssistantTeaserRotation() {

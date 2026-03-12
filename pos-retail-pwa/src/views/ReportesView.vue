@@ -482,6 +482,14 @@ Responde de forma clara y simple. Si el usuario pide una tabla, formatea con Mar
 
 // ==================== HELPERS ====================
 
+function renderBold(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+}
+
 function parsearTextoIA(texto: string): Array<{ tipo: 'bullet' | 'heading' | 'texto'; valor: string }> {
   const lineas = texto
     .split('\n')
@@ -494,16 +502,10 @@ function parsearTextoIA(texto: string): Array<{ tipo: 'bullet' | 'heading' | 'te
       return { tipo: 'heading' as const, valor: headingMatch[1] }
     }
     if (/^[-*\u2022\u2013]\s+/.test(linea) || /^\d+[.)-]\s+/.test(linea)) {
-      const clean = linea
-        .replace(/^[-*\u2022\u2013\d.)-]\s*/, '')
-        .replace(/\*\*(.*?)\*\*/g, '$1')
-        .replace(/\*(.*?)\*/g, '$1')
+      const clean = linea.replace(/^[-*\u2022\u2013\d.)-]\s*/, '')
       return { tipo: 'bullet' as const, valor: clean }
     }
-    const clean = linea
-      .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/\*(.*?)\*/g, '$1')
-    return { tipo: 'texto' as const, valor: clean }
+    return { tipo: 'texto' as const, valor: linea }
   })
 }
 </script>
@@ -563,7 +565,7 @@ function parsearTextoIA(texto: string): Array<{ tipo: 'bullet' | 'heading' | 'te
                   :class="['neo-tab-btn', { 'neo-tab-btn-active': activeTab === 'ia' }]"
                   @click="activeTab = 'ia'"
                 >
-                  <v-icon start size="14">mdi-sparkles</v-icon> IA
+                  <v-icon start size="14">mdi-robot</v-icon> IA
                 </button>
               </div>
             </div>
@@ -964,14 +966,12 @@ function parsearTextoIA(texto: string): Array<{ tipo: 'bullet' | 'heading' | 'te
                   :key="i"
                   :class="{ 'mb-1': linea.tipo !== 'heading', 'mt-4 mb-2': linea.tipo === 'heading' }"
                 >
-                  <h4 v-if="linea.tipo === 'heading'" class="text-subtitle-2 font-weight-bold text-primary">
-                    {{ linea.valor }}
-                  </h4>
+                  <h4 v-if="linea.tipo === 'heading'" class="text-subtitle-2 font-weight-bold text-primary" v-html="renderBold(linea.valor)" />
                   <div v-else-if="linea.tipo === 'bullet'" class="d-flex align-start">
                     <v-icon size="14" color="primary" class="mt-1 mr-2 flex-shrink-0">mdi-circle-small</v-icon>
-                    <span class="text-body-2">{{ linea.valor }}</span>
+                    <span class="text-body-2" v-html="renderBold(linea.valor)" />
                   </div>
-                  <p v-else class="text-body-2 mb-0">{{ linea.valor }}</p>
+                  <p v-else class="text-body-2 mb-0" v-html="renderBold(linea.valor)" />
                 </div>
               </div>
 
@@ -1057,14 +1057,12 @@ function parsearTextoIA(texto: string): Array<{ tipo: 'bullet' | 'heading' | 'te
                   :key="i"
                   :class="{ 'mb-1': linea.tipo !== 'heading', 'mt-3 mb-2': linea.tipo === 'heading' }"
                 >
-                  <h4 v-if="linea.tipo === 'heading'" class="text-subtitle-2 font-weight-bold text-primary">
-                    {{ linea.valor }}
-                  </h4>
+                  <h4 v-if="linea.tipo === 'heading'" class="text-subtitle-2 font-weight-bold text-primary" v-html="renderBold(linea.valor)" />
                   <div v-else-if="linea.tipo === 'bullet'" class="d-flex align-start">
                     <v-icon size="14" color="primary" class="mt-1 mr-2 flex-shrink-0">mdi-circle-small</v-icon>
-                    <span class="text-body-2">{{ linea.valor }}</span>
+                    <span class="text-body-2" v-html="renderBold(linea.valor)" />
                   </div>
-                  <p v-else class="text-body-2 mb-0">{{ linea.valor }}</p>
+                  <p v-else class="text-body-2 mb-0" v-html="renderBold(linea.valor)" />
                 </div>
               </div>
 

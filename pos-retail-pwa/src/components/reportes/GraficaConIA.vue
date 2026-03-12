@@ -50,8 +50,6 @@ Sé breve (máx 6-8 líneas). No uses términos como "desviación estándar", "c
 
 function parsearLineas(texto: string): Array<{ tipo: 'bullet' | 'texto'; valor: string }> {
   const lineas = texto
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
     .split('\n')
     .map(l => l.trim())
     .filter(Boolean)
@@ -62,6 +60,14 @@ function parsearLineas(texto: string): Array<{ tipo: 'bullet' | 'texto'; valor: 
     }
     return { tipo: 'texto' as const, valor: linea }
   })
+}
+
+function renderBold(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
 }
 </script>
 
@@ -117,9 +123,9 @@ function parsearLineas(texto: string): Array<{ tipo: 'bullet' | 'texto'; valor: 
               >
                 <div v-if="linea.tipo === 'bullet'" class="d-flex align-start">
                   <v-icon size="14" color="primary" class="mt-1 mr-2 flex-shrink-0">mdi-circle-small</v-icon>
-                  <span class="text-body-2">{{ linea.valor }}</span>
+                  <span class="text-body-2" v-html="renderBold(linea.valor)" />
                 </div>
-                <p v-else class="text-body-2 mb-0">{{ linea.valor }}</p>
+                <p v-else class="text-body-2 mb-0" v-html="renderBold(linea.valor)" />
               </div>
             </div>
 

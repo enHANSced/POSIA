@@ -44,6 +44,8 @@ const showBarcodeScanner = ref(false)
 const scannerManualCode = ref('')
 const scannerStatus = ref('')
 const scannerError = ref('')
+const scannerTorchOn = ref(false)
+const scannerTorchSupported = ref(false)
 const analizandoImagen = ref(false)
 const analisisError = ref('')
 const fileInput = ref<any>(null)
@@ -72,6 +74,8 @@ const BARCODE_FORMATS = [
 // Camera capture
 const showCamera = ref(false)
 let cameraStream: MediaStream | null = null
+const cameraTorchOn = ref(false)
+const cameraTorchSupported = ref(false)
 
 // Category management
 const showCategoryManager = ref(false)
@@ -212,8 +216,50 @@ async function initBarcodeScanner() {
       },
       () => {}
     )
+
+    setTimeout(() => {
+      void syncScannerTorchSupport()
+    }, 120)
   } catch {
     scannerError.value = 'No se pudo iniciar el escáner. Verificá los permisos de cámara.'
+  }
+}
+
+function getTorchTrack(videoElement: HTMLVideoElement | null): MediaStreamTrack | null {
+  if (!videoElement?.srcObject) return null
+  const tracks = (videoElement.srcObject as MediaStream).getVideoTracks()
+  return tracks[0] ?? null
+}
+
+function trackSupportsTorch(track: MediaStreamTrack | null): boolean {
+  if (!track) return false
+  const capabilities = track.getCapabilities?.() as MediaTrackCapabilities & { torch?: boolean }
+  return Boolean(capabilities?.torch)
+}
+
+async function applyTorch(track: MediaStreamTrack, enabled: boolean): Promise<void> {
+  await track.applyConstraints?.({ advanced: [{ torch: enabled } as any] })
+}
+
+async function syncScannerTorchSupport() {
+  const video = document.querySelector('#productos-scanner-reader video') as HTMLVideoElement | null
+  const track = getTorchTrack(video)
+  scannerTorchSupported.value = trackSupportsTorch(track)
+  if (!scannerTorchSupported.value) {
+    scannerTorchOn.value = false
+  }
+}
+
+async function toggleScannerTorch() {
+  try {
+    const video = document.querySelector('#productos-scanner-reader video') as HTMLVideoElement | null
+    const track = getTorchTrack(video)
+    if (!track || !trackSupportsTorch(track)) return
+
+    await applyTorch(track, !scannerTorchOn.value)
+    scannerTorchOn.value = !scannerTorchOn.value
+  } catch {
+    scannerError.value = 'La linterna no está disponible en este dispositivo.'
   }
 }
 
@@ -224,6 +270,8 @@ async function clearBarcodeScanner() {
   } catch {
   } finally {
     barcodeScanner = null
+    scannerTorchOn.value = false
+    scannerTorchSupported.value = false
   }
 }
 
@@ -232,6 +280,8 @@ async function abrirEscaner() {
   showBarcodeScanner.value = true
   scannerStatus.value = ''
   scannerError.value = ''
+  scannerTorchOn.value = false
+  scannerTorchSupported.value = false
   await nextTick()
   setTimeout(() => {
     void initBarcodeScanner()
@@ -331,6 +381,8 @@ function limpiarImagen() {
 // Camera capture
 async function abrirCamara() {
   showCamera.value = true
+  cameraTorchOn.value = false
+  cameraTorchSupported.value = false
   await nextTick()
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -341,10 +393,25 @@ async function abrirCamara() {
     if (video) {
       video.srcObject = stream
       await video.play()
+      const track = getTorchTrack(video)
+      cameraTorchSupported.value = trackSupportsTorch(track)
     }
   } catch {
     analisisError.value = 'No se pudo acceder a la cámara.'
     showCamera.value = false
+  }
+}
+
+async function toggleCameraTorch() {
+  try {
+    const video = document.getElementById('camera-preview') as HTMLVideoElement | null
+    const track = getTorchTrack(video)
+    if (!track || !trackSupportsTorch(track)) return
+
+    await applyTorch(track, !cameraTorchOn.value)
+    cameraTorchOn.value = !cameraTorchOn.value
+  } catch {
+    analisisError.value = 'La linterna no está disponible en este dispositivo.'
   }
 }
 
@@ -373,6 +440,8 @@ function cerrarCamara() {
     cameraStream.getTracks().forEach(track => track.stop())
     cameraStream = null
   }
+  cameraTorchOn.value = false
+  cameraTorchSupported.value = false
   showCamera.value = false
 }
 
@@ -1075,6 +1144,18 @@ function getCategoryName(categoryId: string | null): string {
             <v-icon color="primary">mdi-barcode-scan</v-icon>
           </div>
           <h3 class="text-h6 font-weight-bold">Escanear código de barras</h3>
+          <v-spacer />
+          <v-btn
+            v-if="scannerTorchSupported"
+            icon
+            size="small"
+            :variant="scannerTorchOn ? 'tonal' : 'text'"
+            :color="scannerTorchOn ? 'warning' : undefined"
+            @click="toggleScannerTorch"
+            aria-label="Activar/desactivar linterna"
+          >
+            <v-icon>{{ scannerTorchOn ? 'mdi-flashlight-off' : 'mdi-flashlight' }}</v-icon>
+          </v-btn>
         </div>
 
         <v-card-text class="px-6 pb-2">
@@ -1151,6 +1232,15 @@ function getCategoryName(categoryId: string | null): string {
 
         <v-card-actions class="pa-4 pt-0">
           <v-btn variant="text" @click="cerrarCamara">Cancelar</v-btn>
+          <v-btn
+            v-if="cameraTorchSupported"
+            :variant="cameraTorchOn ? 'tonal' : 'text'"
+            :color="cameraTorchOn ? 'warning' : undefined"
+            @click="toggleCameraTorch"
+          >
+            <v-icon start>{{ cameraTorchOn ? 'mdi-flashlight-off' : 'mdi-flashlight' }}</v-icon>
+            {{ cameraTorchOn ? 'Apagar linterna' : 'Encender linterna' }}
+          </v-btn>
           <v-spacer />
           <v-btn
             color="primary"

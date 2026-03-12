@@ -7,6 +7,14 @@ import AsistenteIADrawer from '@/components/ia/AsistenteIADrawer.vue'
 import NotificacionesPanel from '@/components/notificaciones/NotificacionesPanel.vue'
 import { useNotificacionesStore } from '@/stores/notificaciones'
 
+type AssistantTeaser = {
+  id: string
+  label: string
+  title: string
+  body: string
+  icon: string
+}
+
 const authStore = useAuthStore()
 const notificacionesStore = useNotificacionesStore()
 const router = useRouter()
@@ -36,6 +44,7 @@ watch(
 
 onBeforeUnmount(() => {
   notificacionesStore.stopRealtime()
+  stopAssistantTeaserRotation()
 })
 
 // Estado del drawer — cerrado por defecto en móvil
@@ -45,6 +54,75 @@ const iaDrawer = ref(false)
 const notificationsDrawer = ref(false)
 
 const canUseIA = computed(() => authStore.isAdmin)
+const assistantTeaserIndex = ref(0)
+let assistantTeaserTimer: ReturnType<typeof setInterval> | null = null
+
+const saludoAsistente = computed(() => {
+  const hora = new Date().getHours()
+
+  if (hora < 12) return 'Buenos días'
+  if (hora < 18) return 'Buenas tardes'
+  return 'Buenas noches'
+})
+
+const assistantTeasers = computed<AssistantTeaser[]>(() => [
+  {
+    id: 'saludo',
+    label: 'Saludo',
+    title: `${saludoAsistente.value}, ${authStore.userName.split(' ')[0] || 'equipo'}`,
+    body: 'Puedo resumirte ventas, inventario y movimientos del negocio en segundos.',
+    icon: 'mdi-hand-wave-outline'
+  },
+  {
+    id: 'tip',
+    label: 'Tip rápido',
+    title: 'Pedime un cierre express',
+    body: 'Probá con: resumen de ventas del día, top productos y alertas de inventario.',
+    icon: 'mdi-lightbulb-on-outline'
+  },
+  {
+    id: 'curiosidad',
+    label: 'Curiosidad',
+    title: 'Leo señales del sistema',
+    body: 'También puedo ayudarte a detectar productos sin rotación o con stock crítico.',
+    icon: 'mdi-chart-timeline-variant'
+  },
+  {
+    id: 'sugerencia',
+    label: 'Sugerencia',
+    title: 'Hagamos una consulta útil',
+    body: 'Preguntame qué conviene reabastecer o qué categoría está vendiendo mejor hoy.',
+    icon: 'mdi-robot-excited-outline'
+  }
+])
+
+const activeAssistantTeaser = computed(() => {
+  return assistantTeasers.value[assistantTeaserIndex.value] ?? assistantTeasers.value[0]
+})
+
+function stopAssistantTeaserRotation() {
+  if (!assistantTeaserTimer) return
+  clearInterval(assistantTeaserTimer)
+  assistantTeaserTimer = null
+}
+
+function startAssistantTeaserRotation() {
+  if (assistantTeaserTimer || !canUseIA.value || assistantTeasers.value.length <= 1) return
+
+  assistantTeaserTimer = setInterval(() => {
+    assistantTeaserIndex.value = (assistantTeaserIndex.value + 1) % assistantTeasers.value.length
+  }, 6000)
+}
+
+watch(canUseIA, (enabled) => {
+  if (!enabled) {
+    stopAssistantTeaserRotation()
+    assistantTeaserIndex.value = 0
+    return
+  }
+
+  startAssistantTeaserRotation()
+}, { immediate: true })
 
 // Items de navegación
 const navItems = [
@@ -175,9 +253,43 @@ async function handleLogout() {
 
         <template #append>
           <div class="pa-3">
-            <div v-if="canUseIA && !rail" class="neo-card-pressed pa-3 text-center">
-              <v-icon size="20" color="primary" class="mr-1">mdi-robot-happy</v-icon>
-              <span class="text-caption text-medium-emphasis">Asistente IA</span>
+            <div
+              v-if="canUseIA && !rail"
+              class="neo-card-pressed pa-3 assistant-teaser-card"
+              role="button"
+              tabindex="0"
+              @click="iaDrawer = true"
+              @keydown.enter="iaDrawer = true"
+            >
+              <div class="d-flex align-start ga-3">
+                <div class="assistant-teaser-icon">
+                  <v-icon size="18" color="primary">mdi-robot-happy-outline</v-icon>
+                </div>
+
+                <div class="flex-grow-1" style="min-width: 0;">
+                  <div class="d-flex align-center justify-space-between mb-2 ga-2">
+                    <span class="text-caption font-weight-bold text-primary">Asistente IA</span>
+                    <v-chip size="x-small" variant="tonal" color="primary">
+                      {{ activeAssistantTeaser.label }}
+                    </v-chip>
+                  </div>
+
+                  <transition name="assistant-teaser-fade" mode="out-in">
+                    <div :key="activeAssistantTeaser.id">
+                      <div class="d-flex align-center ga-2 mb-1">
+                        <v-icon :icon="activeAssistantTeaser.icon" size="14" color="primary" />
+                        <p class="text-caption font-weight-medium assistant-teaser-title mb-0">
+                          {{ activeAssistantTeaser.title }}
+                        </p>
+                      </div>
+
+                      <p class="text-caption text-medium-emphasis assistant-teaser-body mb-0">
+                        {{ activeAssistantTeaser.body }}
+                      </p>
+                    </div>
+                  </transition>
+                </div>
+              </div>
             </div>
           </div>
         </template>
@@ -219,5 +331,50 @@ async function handleLogout() {
 .neo-avatar {
   box-shadow: var(--neo-raised-sm) !important;
   background-color: var(--neo-bg-alt) !important;
+}
+
+.assistant-teaser-card {
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.assistant-teaser-card:hover {
+  transform: translateY(-1px);
+}
+
+.assistant-teaser-card:focus-visible {
+  outline: 2px solid rgba(var(--v-theme-primary), 0.28);
+  outline-offset: 3px;
+}
+
+.assistant-teaser-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, rgba(74, 123, 247, 0.12), rgba(74, 123, 247, 0.04));
+  box-shadow: var(--neo-raised-sm);
+  flex-shrink: 0;
+}
+
+.assistant-teaser-title {
+  line-height: 1.3;
+}
+
+.assistant-teaser-body {
+  line-height: 1.45;
+}
+
+.assistant-teaser-fade-enter-active,
+.assistant-teaser-fade-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.assistant-teaser-fade-enter-from,
+.assistant-teaser-fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 </style>

@@ -490,23 +490,69 @@ function renderBold(text: string): string {
   return escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
 }
 
-function parsearTextoIA(texto: string): Array<{ tipo: 'bullet' | 'heading' | 'texto'; valor: string }> {
-  const lineas = texto
-    .split('\n')
-    .map(l => l.trim())
-    .filter(Boolean)
+type IALinea =
+  | { tipo: 'heading'; valor: string }
+  | { tipo: 'bullet'; valor: string }
+  | { tipo: 'texto'; valor: string }
+  | { tipo: 'tabla'; headers: string[]; rows: string[][] }
 
-  return lineas.map(linea => {
-    const headingMatch = linea.match(/^#{1,3}\s+(.+)$/) || linea.match(/^\*\*(.+?)\*\*$/)
+function esSeparadorTabla(linea: string): boolean {
+  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(linea)
+}
+
+function separarCeldasTabla(linea: string): string[] {
+  return linea
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map(cell => cell.trim())
+}
+
+function parsearTextoIA(texto: string): IALinea[] {
+  const lineasRaw = texto.split('\n').map(l => l.trim())
+  const resultado: IALinea[] = []
+  let i = 0
+
+  while (i < lineasRaw.length) {
+    const actual = lineasRaw[i] ?? ''
+    if (!actual) { i++; continue }
+
+    const siguiente = lineasRaw[i + 1]?.trim() ?? ''
+    const esHeaderTabla = actual.includes('|') && esSeparadorTabla(siguiente)
+
+    if (esHeaderTabla) {
+      const headers = separarCeldasTabla(actual)
+      const rows: string[][] = []
+      i += 2
+      while (i < lineasRaw.length) {
+        const raw = lineasRaw[i]?.trim() ?? ''
+        if (!raw || !raw.includes('|')) break
+        if (esSeparadorTabla(raw)) { i++; continue }
+        rows.push(separarCeldasTabla(raw))
+        i++
+      }
+      resultado.push({ tipo: 'tabla', headers, rows })
+      continue
+    }
+
+    const headingMatch = actual.match(/^#{1,3}\s+(.+)$/) || actual.match(/^\*\*(.+?)\*\*$/)
     if (headingMatch) {
-      return { tipo: 'heading' as const, valor: headingMatch[1] }
+      resultado.push({ tipo: 'heading', valor: headingMatch[1] ?? actual })
+      i++
+      continue
     }
-    if (/^[-*\u2022\u2013]\s+/.test(linea) || /^\d+[.)-]\s+/.test(linea)) {
-      const clean = linea.replace(/^[-*\u2022\u2013\d.)-]\s*/, '')
-      return { tipo: 'bullet' as const, valor: clean }
+    if (/^[-*\u2022\u2013]\s+/.test(actual) || /^\d+[.)-]\s+/.test(actual)) {
+      const clean = actual.replace(/^[-*\u2022\u2013\d.)-]\s*/, '')
+      resultado.push({ tipo: 'bullet', valor: clean })
+      i++
+      continue
     }
-    return { tipo: 'texto' as const, valor: linea }
-  })
+    resultado.push({ tipo: 'texto', valor: actual })
+    i++
+  }
+
+  return resultado
 }
 </script>
 
@@ -961,18 +1007,36 @@ function parsearTextoIA(texto: string): Array<{ tipo: 'bullet' | 'heading' | 'te
 
               <!-- Resultado -->
               <div v-if="iaReporte" class="neo-card-pressed pa-5">
-                <div
+                <template
                   v-for="(linea, i) in parsearTextoIA(iaReporte)"
                   :key="i"
-                  :class="{ 'mb-1': linea.tipo !== 'heading', 'mt-4 mb-2': linea.tipo === 'heading' }"
                 >
-                  <h4 v-if="linea.tipo === 'heading'" class="text-subtitle-2 font-weight-bold text-primary" v-html="renderBold(linea.valor)" />
-                  <div v-else-if="linea.tipo === 'bullet'" class="d-flex align-start">
-                    <v-icon size="14" color="primary" class="mt-1 mr-2 flex-shrink-0">mdi-circle-small</v-icon>
-                    <span class="text-body-2" v-html="renderBold(linea.valor)" />
+                  <div v-if="linea.tipo === 'tabla'" class="ia-tabla-wrapper my-3">
+                    <table class="ia-md-table">
+                      <thead>
+                        <tr>
+                          <th v-for="(hdr, hi) in linea.headers" :key="hi" v-html="renderBold(hdr)" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(row, ri) in linea.rows" :key="ri">
+                          <td v-for="(cell, ci) in row" :key="ci" v-html="renderBold(cell)" />
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
-                  <p v-else class="text-body-2 mb-0" v-html="renderBold(linea.valor)" />
-                </div>
+                  <div
+                    v-else
+                    :class="{ 'mb-1': linea.tipo !== 'heading', 'mt-4 mb-2': linea.tipo === 'heading' }"
+                  >
+                    <h4 v-if="linea.tipo === 'heading'" class="text-subtitle-2 font-weight-bold text-primary" v-html="renderBold(linea.valor)" />
+                    <div v-else-if="linea.tipo === 'bullet'" class="d-flex align-start">
+                      <v-icon size="14" color="primary" class="mt-1 mr-2 flex-shrink-0">mdi-circle-small</v-icon>
+                      <span class="text-body-2" v-html="renderBold(linea.valor)" />
+                    </div>
+                    <p v-else class="text-body-2 mb-0" v-html="renderBold(linea.valor)" />
+                  </div>
+                </template>
               </div>
 
               <v-alert v-else-if="iaReporteError" type="error" density="compact">
@@ -1052,18 +1116,36 @@ function parsearTextoIA(texto: string): Array<{ tipo: 'bullet' | 'heading' | 'te
 
               <!-- Resultado -->
               <div v-if="iaCustomChart" class="neo-card-pressed pa-4">
-                <div
+                <template
                   v-for="(linea, i) in parsearTextoIA(iaCustomChart)"
                   :key="i"
-                  :class="{ 'mb-1': linea.tipo !== 'heading', 'mt-3 mb-2': linea.tipo === 'heading' }"
                 >
-                  <h4 v-if="linea.tipo === 'heading'" class="text-subtitle-2 font-weight-bold text-primary" v-html="renderBold(linea.valor)" />
-                  <div v-else-if="linea.tipo === 'bullet'" class="d-flex align-start">
-                    <v-icon size="14" color="primary" class="mt-1 mr-2 flex-shrink-0">mdi-circle-small</v-icon>
-                    <span class="text-body-2" v-html="renderBold(linea.valor)" />
+                  <div v-if="linea.tipo === 'tabla'" class="ia-tabla-wrapper my-3">
+                    <table class="ia-md-table">
+                      <thead>
+                        <tr>
+                          <th v-for="(hdr, hi) in linea.headers" :key="hi" v-html="renderBold(hdr)" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(row, ri) in linea.rows" :key="ri">
+                          <td v-for="(cell, ci) in row" :key="ci" v-html="renderBold(cell)" />
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
-                  <p v-else class="text-body-2 mb-0" v-html="renderBold(linea.valor)" />
-                </div>
+                  <div
+                    v-else
+                    :class="{ 'mb-1': linea.tipo !== 'heading', 'mt-3 mb-2': linea.tipo === 'heading' }"
+                  >
+                    <h4 v-if="linea.tipo === 'heading'" class="text-subtitle-2 font-weight-bold text-primary" v-html="renderBold(linea.valor)" />
+                    <div v-else-if="linea.tipo === 'bullet'" class="d-flex align-start">
+                      <v-icon size="14" color="primary" class="mt-1 mr-2 flex-shrink-0">mdi-circle-small</v-icon>
+                      <span class="text-body-2" v-html="renderBold(linea.valor)" />
+                    </div>
+                    <p v-else class="text-body-2 mb-0" v-html="renderBold(linea.valor)" />
+                  </div>
+                </template>
               </div>
 
               <v-alert v-else-if="iaCustomError" type="error" density="compact">
@@ -1143,5 +1225,41 @@ function parsearTextoIA(texto: string): Array<{ tipo: 'bullet' | 'heading' | 'te
 
 .cursor-pointer {
   cursor: pointer;
+}
+
+/* Tablas Markdown generadas por IA */
+.ia-tabla-wrapper {
+  overflow-x: auto;
+  border-radius: 8px;
+}
+
+.ia-md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.ia-md-table th {
+  background: var(--neo-bg-alt, rgba(0,0,0,0.06));
+  color: rgb(var(--v-theme-primary));
+  font-weight: 700;
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 2px solid rgba(var(--v-theme-primary), 0.3);
+  white-space: nowrap;
+}
+
+.ia-md-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.07);
+  vertical-align: middle;
+}
+
+.ia-md-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ia-md-table tbody tr:nth-child(even) td {
+  background: rgba(0,0,0,0.025);
 }
 </style>

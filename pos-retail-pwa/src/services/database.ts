@@ -623,3 +623,140 @@ export function subscribeToEmployees(
     )
     .subscribe()
 }
+
+// ==================== REPORTES AVANZADOS ====================
+
+export interface DailySalesSummary {
+  fecha: string
+  total_sales: number
+  total_revenue: number
+  total_tax: number
+  total_discount: number
+  avg_ticket: number
+}
+
+export interface SalesByHour {
+  hora: number
+  ventas: number
+  revenue: number
+}
+
+export interface SellerRanking {
+  seller_id: string
+  seller_name: string
+  seller_email: string
+  total_sales: number
+  total_revenue: number
+  avg_ticket: number
+  last_sale_at: string | null
+}
+
+export interface SalesByPaymentMethod {
+  payment_method: string
+  total_sales: number
+  total_revenue: number
+}
+
+export interface DiscountImpactDaily {
+  fecha: string
+  total_sales: number
+  sales_with_discount: number
+  total_discount_amount: number
+  total_revenue: number
+  discount_percent_of_revenue: number
+}
+
+export async function fetchDailySalesSummary(): Promise<DailySalesSummary[]> {
+  const { data, error } = await supabase
+    .from('daily_sales_summary')
+    .select('*')
+    .order('fecha', { ascending: true })
+
+  if (error) throw error
+  return (data || []).map(d => ({
+    fecha: d.fecha,
+    total_sales: Number(d.total_sales),
+    total_revenue: Number(d.total_revenue),
+    total_tax: Number(d.total_tax),
+    total_discount: Number(d.total_discount),
+    avg_ticket: Number(d.avg_ticket)
+  }))
+}
+
+export async function fetchSalesByHour(): Promise<SalesByHour[]> {
+  const { data, error } = await supabase
+    .from('sales_by_hour')
+    .select('*')
+    .order('hora', { ascending: true })
+
+  if (error) throw error
+  return (data || []).map(d => ({
+    hora: Number(d.hora),
+    ventas: Number(d.ventas),
+    revenue: Number(d.revenue)
+  }))
+}
+
+export async function fetchSellerRankings(): Promise<SellerRanking[]> {
+  const { data, error } = await supabase
+    .from('seller_rankings')
+    .select('*')
+    .order('total_revenue', { ascending: false })
+
+  if (error) throw error
+  return (data || []).map(d => ({
+    seller_id: d.seller_id,
+    seller_name: d.seller_name || 'Sin nombre',
+    seller_email: d.seller_email,
+    total_sales: Number(d.total_sales),
+    total_revenue: Number(d.total_revenue),
+    avg_ticket: Number(d.avg_ticket),
+    last_sale_at: d.last_sale_at
+  }))
+}
+
+export async function fetchSalesByPaymentMethod(): Promise<SalesByPaymentMethod[]> {
+  const { data, error } = await supabase
+    .from('sales_by_payment_method')
+    .select('*')
+
+  if (error) throw error
+  return (data || []).map(d => ({
+    payment_method: d.payment_method,
+    total_sales: Number(d.total_sales),
+    total_revenue: Number(d.total_revenue)
+  }))
+}
+
+export async function fetchDiscountImpactDaily(): Promise<DiscountImpactDaily[]> {
+  const { data, error } = await supabase
+    .from('discount_impact_daily')
+    .select('*')
+    .order('fecha', { ascending: true })
+
+  if (error) throw error
+  return (data || []).map(d => ({
+    fecha: d.fecha ?? '',
+    total_sales: Number(d.total_sales),
+    sales_with_discount: Number(d.sales_with_discount),
+    total_discount_amount: Number(d.total_discount_amount),
+    total_revenue: Number(d.total_revenue),
+    discount_percent_of_revenue: Number(d.discount_percent_of_revenue)
+  }))
+}
+
+export async function fetchTopSellingProducts(limit: number = 10) {
+  const { data, error } = await supabase
+    .from('top_selling_products')
+    .select('*')
+    .limit(limit)
+
+  if (error) throw error
+  return (data || []).map(p => ({
+    id: p.id,
+    name: p.name || 'Desconocido',
+    price: Number(p.price || 0),
+    stock: Number(p.stock || 0),
+    units_sold: Number(p.units_sold || 0)
+  }))
+}

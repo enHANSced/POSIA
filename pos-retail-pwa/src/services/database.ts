@@ -674,7 +674,7 @@ export async function fetchDailySalesSummary(): Promise<DailySalesSummary[]> {
 
   if (error) throw error
   return (data || []).map(d => ({
-    fecha: d.fecha,
+    fecha: d.fecha ?? '',
     total_sales: Number(d.total_sales),
     total_revenue: Number(d.total_revenue),
     total_tax: Number(d.total_tax),
@@ -705,9 +705,9 @@ export async function fetchSellerRankings(): Promise<SellerRanking[]> {
 
   if (error) throw error
   return (data || []).map(d => ({
-    seller_id: d.seller_id,
+    seller_id: d.seller_id ?? '',
     seller_name: d.seller_name || 'Sin nombre',
-    seller_email: d.seller_email,
+    seller_email: d.seller_email ?? '',
     total_sales: Number(d.total_sales),
     total_revenue: Number(d.total_revenue),
     avg_ticket: Number(d.avg_ticket),
@@ -722,7 +722,7 @@ export async function fetchSalesByPaymentMethod(): Promise<SalesByPaymentMethod[
 
   if (error) throw error
   return (data || []).map(d => ({
-    payment_method: d.payment_method,
+    payment_method: d.payment_method ?? 'desconocido',
     total_sales: Number(d.total_sales),
     total_revenue: Number(d.total_revenue)
   }))

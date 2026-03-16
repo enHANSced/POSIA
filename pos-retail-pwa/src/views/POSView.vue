@@ -1069,11 +1069,11 @@ function formatHNL(value: number): string {
     </v-row>
 
     <!-- Diálogo de Checkout Multi-Paso -->
-    <v-dialog v-model="showCheckout" max-width="520" persistent>
-      <v-card class="checkout-card">
+    <v-dialog v-model="showCheckout" max-width="520" persistent scrollable transition="dialog-bottom-transition">
+      <v-card class="checkout-card border-0" rounded="xl" elevation="0">
         <!-- Step indicator -->
-        <div class="checkout-steps pt-5 pb-2 d-flex justify-center">
-          <div class="step-indicator">
+        <div class="checkout-steps pt-6 pb-2 d-flex justify-center flex-shrink-0">
+          <div class="step-indicator px-4 py-2 neo-flat rounded-pill">
             <div class="step-dot" :class="{ active: true }">
               <v-icon size="14" color="white">mdi-cart-check</v-icon>
             </div>
@@ -1088,302 +1088,328 @@ function formatHNL(value: number): string {
           </div>
         </div>
 
-        <!-- === PASO 1: Selección método de pago === -->
-        <template v-if="checkoutStep === 'payment'">
-          <div class="pa-6 pb-3 text-center">
-            <h3 class="text-h6 mb-1">Finalizar Venta</h3>
-            <p class="text-h4 font-weight-bold text-primary mt-2">
-              {{ formatHNL(carritoStore.getTotal()) }}
-            </p>
-          </div>
+        <div class="checkout-content-wrapper flex-grow-1" style="overflow-y: auto;">
+          <transition name="checkout-slide" mode="out-in">
+            
+            <!-- === PASO 1: Selección método de pago === -->
+            <div v-if="checkoutStep === 'payment'" key="payment" class="checkout-step-container">
+              <div class="pa-6 pb-3 text-center">
+                <h3 class="text-h5 font-weight-bold mb-1">Finalizar Venta</h3>
+                <div class="neo-total-badge mx-auto mt-3 mb-1">
+                  <span class="text-caption text-medium-emphasis d-block mb-1">Total a cobrar</span>
+                  <span class="text-h4 font-weight-black text-primary">{{ formatHNL(carritoStore.getTotal()) }}</span>
+                </div>
+              </div>
 
-          <v-card-text class="px-6 pb-4">
-            <!-- Resumen -->
-            <div class="neo-card-pressed pa-3 mb-4">
-              <div class="d-flex justify-space-between text-body-2 mb-1">
-                <span>Productos:</span>
-                <span>{{ carritoStore.getItemCount() }}</span>
-              </div>
-              <div class="d-flex justify-space-between text-body-2 mb-1">
-                <span>Subtotal:</span>
-                <span>{{ formatHNL(carritoStore.getSubtotal()) }}</span>
-              </div>
-              <div class="d-flex justify-space-between text-body-2">
-                <span>ISV:</span>
-                <span>{{ formatHNL(carritoStore.getTax()) }}</span>
-              </div>
+              <v-card-text class="px-6 pb-4">
+                <!-- Resumen neumórfico -->
+                <div class="neo-card-pressed rounded-xl pa-4 mb-5">
+                  <div class="d-flex justify-space-between text-body-2 mb-2">
+                    <span class="text-medium-emphasis">Productos:</span>
+                    <span class="font-weight-bold">{{ carritoStore.getItemCount() }}</span>
+                  </div>
+                  <div class="d-flex justify-space-between text-body-2 mb-2">
+                    <span class="text-medium-emphasis">Subtotal:</span>
+                    <span class="font-weight-bold">{{ formatHNL(carritoStore.getSubtotal()) }}</span>
+                  </div>
+                  <div class="d-flex justify-space-between text-body-2">
+                    <span class="text-medium-emphasis">ISV (15%):</span>
+                    <span class="font-weight-bold">{{ formatHNL(carritoStore.getTax()) }}</span>
+                  </div>
+                </div>
+
+                <!-- Datos opcionales del cliente -->
+                <v-expansion-panels variant="accordion" class="mb-5 neo-expansion">
+                  <v-expansion-panel elevation="0" class="bg-transparent">
+                    <v-expansion-panel-title class="text-body-2 px-2 font-weight-medium">
+                      <v-icon start size="20" color="primary">mdi-account-outline</v-icon>
+                      Añadir datos del cliente (opcional)
+                    </v-expansion-panel-title>
+                    <v-expansion-panel-text class="px-0 pt-2">
+                      <v-text-field
+                        v-model="customerName"
+                        label="Nombre del cliente"
+                        prepend-inner-icon="mdi-account"
+                        variant="outlined"
+                        density="comfortable"
+                        class="mb-3 neo-input"
+                        hide-details
+                      />
+                      <v-text-field
+                        v-model="customerRtn"
+                        label="RTN del cliente"
+                        prepend-inner-icon="mdi-card-account-details"
+                        variant="outlined"
+                        density="comfortable"
+                        class="neo-input"
+                        hide-details
+                        placeholder="0801-XXXX-XXXXX"
+                      />
+                    </v-expansion-panel-text>
+                  </v-expansion-panel>
+                </v-expansion-panels>
+
+                <!-- Método de pago -->
+                <p class="text-subtitle-2 font-weight-bold mb-3 d-flex align-center px-1">
+                  <v-icon size="18" class="mr-2 text-primary">mdi-wallet-outline</v-icon>
+                  Método de pago
+                </p>
+                <v-row dense>
+                  <v-col cols="6">
+                    <div class="payment-method-card" @click="selectPaymentMethod('efectivo')">
+                      <div class="payment-method-icon" style="background: linear-gradient(135deg, #66BB6A, #81C784);">
+                        <v-icon size="24" color="white">mdi-cash-multiple</v-icon>
+                      </div>
+                      <div class="text-body-2 font-weight-bold mt-3">Efectivo</div>
+                    </div>
+                  </v-col>
+                  <v-col cols="6">
+                    <div class="payment-method-card" @click="selectPaymentMethod('tarjeta')">
+                      <div class="payment-method-icon" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
+                        <v-icon size="24" color="white">mdi-credit-card-outline</v-icon>
+                      </div>
+                      <div class="text-body-2 font-weight-bold mt-3">Tarjeta</div>
+                    </div>
+                  </v-col>
+                </v-row>
+
+                <v-alert v-if="saleError" type="error" class="mt-4 neo-alert" closable @click:close="saleError = ''">
+                  {{ saleError }}
+                </v-alert>
+              </v-card-text>
+
+              <v-card-actions class="pa-6 pt-0">
+                <v-btn class="neo-btn px-6" rounded="xl" size="large" variant="text" @click="showCheckout = false">Cancelar</v-btn>
+              </v-card-actions>
             </div>
 
-            <!-- Datos opcionales del cliente -->
-            <v-expansion-panels variant="accordion" class="mb-4">
-              <v-expansion-panel elevation="0">
-                <v-expansion-panel-title class="text-body-2">
-                  <v-icon start size="18" color="primary">mdi-account-outline</v-icon>
-                  Datos del cliente (opcional)
-                </v-expansion-panel-title>
-                <v-expansion-panel-text>
-                  <v-text-field
-                    v-model="customerName"
-                    label="Nombre del cliente"
-                    prepend-inner-icon="mdi-account"
-                    density="compact"
-                    class="mb-2"
-                    hide-details
-                  />
-                  <v-text-field
-                    v-model="customerRtn"
-                    label="RTN del cliente"
-                    prepend-inner-icon="mdi-card-account-details"
-                    density="compact"
-                    hide-details
-                    placeholder="0801-XXXX-XXXXX"
-                  />
-                </v-expansion-panel-text>
-              </v-expansion-panel>
-            </v-expansion-panels>
-
-            <!-- Método de pago -->
-            <p class="text-subtitle-2 font-weight-bold mb-3">Seleccioná el método de pago</p>
-            <v-row dense>
-              <v-col cols="6">
-                <div
-                  class="payment-method-card"
-                  :class="{ 'payment-method-card--selected': false }"
-                  @click="selectPaymentMethod('efectivo')"
-                >
-                  <div class="payment-method-icon" style="background: linear-gradient(135deg, #66BB6A, #81C784);">
-                    <v-icon size="24" color="white">mdi-cash-multiple</v-icon>
-                  </div>
-                  <div class="text-body-2 font-weight-bold mt-2">Efectivo</div>
+            <!-- === PASO 2a: Pago en Efectivo === -->
+            <div v-else-if="checkoutStep === 'cash'" key="cash" class="checkout-step-container">
+              <div class="pa-6 pb-2 text-center">
+                <div class="neo-circle mx-auto mb-3" style="background: linear-gradient(135deg, #66BB6A, #81C784);">
+                  <v-icon color="white" size="28">mdi-cash-multiple</v-icon>
                 </div>
-              </v-col>
-              <v-col cols="6">
-                <div
-                  class="payment-method-card"
-                  :class="{ 'payment-method-card--selected': false }"
-                  @click="selectPaymentMethod('tarjeta')"
-                >
-                  <div class="payment-method-icon" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
-                    <v-icon size="24" color="white">mdi-credit-card-outline</v-icon>
-                  </div>
-                  <div class="text-body-2 font-weight-bold mt-2">Tarjeta</div>
+                <h3 class="text-h5 font-weight-bold mb-1">Pago en Efectivo</h3>
+                <div class="neo-total-badge mx-auto mt-3 mb-1">
+                  <span class="text-caption text-medium-emphasis d-block mb-1">Total a cobrar</span>
+                  <span class="text-h4 font-weight-black text-primary">{{ formatHNL(carritoStore.getTotal()) }}</span>
                 </div>
-              </v-col>
-            </v-row>
+              </div>
 
-            <v-alert v-if="saleError" type="error" class="mt-4" closable @click:close="saleError = ''">
-              {{ saleError }}
-            </v-alert>
-          </v-card-text>
+              <v-card-text class="px-6 pb-4">
+                <p class="text-subtitle-2 font-weight-bold mb-3 mt-2 px-1">Monto rápido</p>
+                <v-row dense class="mb-5">
+                  <v-col v-for="monto in montosRapidos" :key="monto" cols="4">
+                    <v-btn
+                      block
+                      variant="text"
+                      rounded="xl"
+                      class="quick-amount-btn"
+                      :class="montoRecibido === monto ? 'quick-amount-btn--active' : 'neo-flat'"
+                      @click="setQuickAmount(monto)"
+                    >
+                      <span :class="montoRecibido === monto ? 'text-white' : 'text-primary'">{{ formatHNL(monto) }}</span>
+                    </v-btn>
+                  </v-col>
+                </v-row>
 
-          <v-card-actions class="pa-6 pt-0">
-            <v-btn variant="text" @click="showCheckout = false">Cancelar</v-btn>
-          </v-card-actions>
-        </template>
+                <v-text-field
+                  v-model.number="montoRecibido"
+                  label="Monto recibido (Personalizado)"
+                  type="number"
+                  prefix="L"
+                  prepend-inner-icon="mdi-cash-edit"
+                  variant="outlined"
+                  density="comfortable"
+                  class="neo-input mb-4"
+                  :min="0"
+                  :rules="[
+                    (v: number) => v !== null || 'Ingresá el monto recibido',
+                    (v: number) => v >= carritoStore.getTotal() || 'El monto debe cubrir el total'
+                  ]"
+                />
 
-        <!-- === PASO 2a: Pago en Efectivo === -->
-        <template v-if="checkoutStep === 'cash'">
-          <div class="pa-6 pb-3 text-center">
-            <h3 class="text-h6 mb-1">Pago en Efectivo</h3>
-            <div class="neo-total-badge mx-auto mt-3 mb-1">
-              <span class="text-caption text-medium-emphasis d-block">Total a cobrar</span>
-              <span class="text-h5 font-weight-bold text-primary">{{ formatHNL(carritoStore.getTotal()) }}</span>
-            </div>
-          </div>
+                <transition name="fade">
+                  <div v-if="montoRecibido !== null" class="cambio-box text-center" :class="cashValid ? 'cambio-box--valid' : 'cambio-box--invalid'">
+                    <p class="text-caption font-weight-bold mb-1" :class="cashValid ? 'text-medium-emphasis' : 'text-error'">CAMBIO A DEVOLVER</p>
+                    <p class="text-h4 font-weight-black" :class="cashValid ? 'text-success' : 'text-error'">
+                      {{ formatHNL(cambio) }}
+                    </p>
+                    <div class="mt-2" v-if="cashValid">
+                      <v-icon color="success" size="24" class="success-icon-animate">mdi-check-decagram</v-icon>
+                    </div>
+                  </div>
+                </transition>
 
-          <v-card-text class="px-6 pb-4">
-            <!-- Montos rápidos -->
-            <p class="text-subtitle-2 font-weight-bold mb-3">Seleccionar monto</p>
-            <v-row dense class="mb-4">
-              <v-col
-                v-for="monto in montosRapidos"
-                :key="monto"
-                cols="4"
-              >
-                <v-btn
-                  block
-                  :variant="montoRecibido === monto ? 'elevated' : 'outlined'"
-                  :color="montoRecibido === monto ? 'success' : undefined"
-                  class="quick-amount-btn"
-                  @click="setQuickAmount(monto)"
-                >
-                  {{ formatHNL(monto) }}
+                <v-alert v-if="saleError" type="error" class="mt-4 neo-alert" closable @click:close="saleError = ''">
+                  {{ saleError }}
+                </v-alert>
+              </v-card-text>
+
+              <v-card-actions class="pa-6 pt-0 d-flex align-center">
+                <v-btn class="neo-btn" rounded="xl" size="large" variant="text" @click="checkoutStep = 'payment'">
+                  <v-icon start>mdi-arrow-left</v-icon> Atrás
                 </v-btn>
-              </v-col>
-            </v-row>
-
-            <!-- Monto manual -->
-            <v-text-field
-              v-model.number="montoRecibido"
-              label="Monto recibido"
-              type="number"
-              prefix="L"
-              prepend-inner-icon="mdi-cash"
-              :min="0"
-              :rules="[
-                (v: number) => v !== null || 'Ingresá el monto recibido',
-                (v: number) => v >= carritoStore.getTotal() || 'El monto debe cubrir el total'
-              ]"
-              class="mb-3"
-            />
-
-            <!-- Cambio -->
-            <div v-if="montoRecibido !== null" class="cambio-box text-center mb-4" :class="cashValid ? 'cambio-box--valid' : 'cambio-box--invalid'">
-              <p class="text-caption text-medium-emphasis mb-1">CAMBIO A DEVOLVER</p>
-              <p class="text-h4 font-weight-bold" :class="cashValid ? 'text-success' : 'text-error'">
-                {{ formatHNL(cambio) }}
-              </p>
-              <v-icon v-if="cashValid" color="success" size="20" class="mt-1">mdi-check-circle</v-icon>
+                <v-spacer />
+                <v-btn
+                  color="success"
+                  size="x-large"
+                  rounded="xl"
+                  :disabled="!cashValid"
+                  :loading="processingPayment"
+                  @click="finalizarVenta"
+                  class="confirmar-btn px-8"
+                  elevation="4"
+                >
+                  <v-icon start size="22">mdi-check-circle</v-icon>
+                  <span class="font-weight-bold">Confirmar Cobro</span>
+                </v-btn>
+              </v-card-actions>
             </div>
 
-            <v-alert v-if="saleError" type="error" class="mb-3" closable @click:close="saleError = ''">
-              {{ saleError }}
-            </v-alert>
-          </v-card-text>
-
-          <v-card-actions class="pa-6 pt-0">
-            <v-btn variant="text" @click="checkoutStep = 'payment'">
-              <v-icon start>mdi-arrow-left</v-icon>
-              Atrás
-            </v-btn>
-            <v-spacer />
-            <v-btn
-              color="success"
-              size="x-large"
-              :disabled="!cashValid"
-              :loading="processingPayment"
-              @click="finalizarVenta"
-              class="px-8 confirmar-btn"
-              elevation="4"
-            >
-              <v-icon start size="22">mdi-check-circle</v-icon>
-              <span class="font-weight-bold">Confirmar Cobro</span>
-            </v-btn>
-          </v-card-actions>
-        </template>
-
-        <!-- === PASO 2b: Pago con Tarjeta (Simulación) === -->
-        <template v-if="checkoutStep === 'card'">
-          <div class="pa-6 text-center">
-            <div class="neo-circle mx-auto mb-3" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
-              <v-icon color="white" size="28">mdi-credit-card-outline</v-icon>
-            </div>
-            <h3 class="text-h6 mb-1">Pago con Tarjeta</h3>
-            <p class="text-body-2 text-medium-emphasis">
-              Cobro: <strong class="text-primary">{{ formatHNL(carritoStore.getTotal()) }}</strong>
-            </p>
-          </div>
-
-          <v-card-text class="px-6 pb-4">
-            <template v-if="cardStep === 'input'">
-              <v-text-field
-                v-model="cardHolderName"
-                label="Nombre del titular"
-                prepend-inner-icon="mdi-account"
-                class="mb-3"
-              />
-              <v-text-field
-                v-model="cardLast4"
-                label="Últimos 4 dígitos de la tarjeta"
-                prepend-inner-icon="mdi-credit-card"
-                maxlength="4"
-                :rules="[(v: string) => v.length === 4 || 'Ingresá los 4 dígitos']"
-                hint="Solo para referencia en el recibo"
-                persistent-hint
-                class="mb-3"
-              />
-              <v-alert type="info" variant="tonal" density="compact" class="mb-3">
-                <div class="text-caption">
-                  <v-icon start size="14">mdi-information</v-icon>
-                  Simulación: en producción se integraría con un proveedor de pagos (Tigo Money, BAC, etc.)
+            <!-- === PASO 2b: Pago con Tarjeta (Simulación) === -->
+            <div v-else-if="checkoutStep === 'card'" key="card" class="checkout-step-container">
+              <div class="pa-6 text-center">
+                <div class="neo-circle mx-auto mb-3" style="background: linear-gradient(135deg, #4A7BF7, #6B93FF);">
+                  <v-icon color="white" size="28">mdi-credit-card-outline</v-icon>
                 </div>
-              </v-alert>
-            </template>
-
-            <template v-if="cardStep === 'processing'">
-              <div class="text-center py-8">
-                <v-progress-circular indeterminate color="primary" size="64" width="4" class="mb-4" />
-                <p class="text-body-1 font-weight-medium">Procesando pago...</p>
-                <p class="text-caption text-medium-emphasis">Comunicando con terminal de pago</p>
+                <h3 class="text-h5 font-weight-bold mb-1">Pago con Tarjeta</h3>
+                <div class="neo-total-badge mx-auto mt-3 mb-4">
+                  <span class="text-caption text-medium-emphasis d-block mb-1">Cobro total</span>
+                  <span class="text-h4 font-weight-black text-primary">{{ formatHNL(carritoStore.getTotal()) }}</span>
+                </div>
               </div>
-            </template>
 
-            <template v-if="cardStep === 'approved'">
-              <div class="text-center py-6">
-                <v-icon size="64" color="success">mdi-check-circle</v-icon>
-                <p class="text-h6 text-success mt-3 font-weight-bold">Pago Aprobado</p>
-                <p class="text-caption text-medium-emphasis">Tarjeta ****{{ cardLast4 }}</p>
+              <v-card-text class="px-6 pb-4">
+                <transition name="checkout-slide" mode="out-in">
+                  <div v-if="cardStep === 'input'" key="input">
+                    <v-text-field
+                      v-model="cardHolderName"
+                      label="Nombre del titular"
+                      prepend-inner-icon="mdi-account"
+                      variant="outlined"
+                      density="comfortable"
+                      class="neo-input mb-4"
+                    />
+                    <v-text-field
+                      v-model="cardLast4"
+                      label="Últimos 4 dígitos de la tarjeta"
+                      prepend-inner-icon="mdi-credit-card"
+                      maxlength="4"
+                      variant="outlined"
+                      density="comfortable"
+                      class="neo-input mb-4"
+                      :rules="[(v: string) => v.length === 4 || 'Ingresá los 4 dígitos']"
+                      hint="Solo para referencia en el recibo"
+                      persistent-hint
+                    />
+                    <v-alert type="info" variant="tonal" density="compact" rounded="xl" class="mb-2 neo-alert">
+                      <div class="text-caption">
+                        <v-icon start size="16">mdi-information</v-icon>
+                        Simulación: en producción se integraría con un proveedor de pagos.
+                      </div>
+                    </v-alert>
+                  </div>
+
+                  <div v-else-if="cardStep === 'processing'" key="processing" class="text-center py-10">
+                    <div class="ia-pulse-wrapper mb-6 mx-auto">
+                      <v-progress-circular indeterminate color="primary" size="64" width="4" />
+                      <div class="ia-pulse-ring" style="border-color: rgb(var(--v-theme-primary));"></div>
+                    </div>
+                    <p class="text-h6 font-weight-bold mb-1">Procesando pago...</p>
+                    <p class="text-body-2 text-medium-emphasis">Comunicando con terminal de pago y banco emisor</p>
+                  </div>
+
+                  <div v-else-if="cardStep === 'approved'" key="approved" class="text-center py-10">
+                    <v-icon size="80" color="success" class="success-icon-animate mb-4">mdi-check-decagram</v-icon>
+                    <p class="text-h5 text-success font-weight-bold mb-1">Pago Aprobado</p>
+                    <p class="text-body-1 text-medium-emphasis">Transacción exitosa para tarjeta ****{{ cardLast4 }}</p>
+                  </div>
+                </transition>
+
+                <v-alert v-if="saleError" type="error" class="mt-4 neo-alert" closable @click:close="saleError = ''">
+                  {{ saleError }}
+                </v-alert>
+              </v-card-text>
+
+              <v-card-actions class="pa-6 pt-0 d-flex align-center">
+                <v-btn class="neo-btn" rounded="xl" size="large" variant="text" @click="checkoutStep = 'payment'" :disabled="cardStep !== 'input'">
+                  <v-icon start>mdi-arrow-left</v-icon> Atrás
+                </v-btn>
+                <v-spacer />
+                <v-btn
+                  v-if="cardStep === 'input'"
+                  color="primary"
+                  size="x-large"
+                  rounded="xl"
+                  class="px-8 cobrar-btn select-payment-btn"
+                  :disabled="cardLast4.length < 4"
+                  @click="simulateCardPayment"
+                >
+                  <v-icon start size="22">mdi-contactless-payment</v-icon>
+                  <span class="font-weight-bold">Procesar Pago</span>
+                </v-btn>
+              </v-card-actions>
+            </div>
+
+            <!-- === PASO 3: Procesando === -->
+            <div v-else-if="checkoutStep === 'processing'" key="processing" class="checkout-step-container">
+              <div class="pa-12 text-center my-8">
+                <div class="ia-pulse-wrapper mb-8 mx-auto">
+                  <v-progress-circular indeterminate color="success" size="72" width="5" />
+                  <div class="ia-pulse-ring" style="border-color: rgb(var(--v-theme-success));"></div>
+                </div>
+                <h3 class="text-h5 font-weight-bold mb-2">Registrando Venta</h3>
+                <p class="text-body-1 text-medium-emphasis">Actualizando inventario y generando factura digital...</p>
               </div>
-            </template>
-
-            <v-alert v-if="saleError" type="error" class="mt-3" closable @click:close="saleError = ''">
-              {{ saleError }}
-            </v-alert>
-          </v-card-text>
-
-          <v-card-actions class="pa-6 pt-0">
-            <v-btn variant="text" @click="checkoutStep = 'payment'" :disabled="cardStep !== 'input'">
-              <v-icon start>mdi-arrow-left</v-icon>
-              Atrás
-            </v-btn>
-            <v-spacer />
-            <v-btn
-              v-if="cardStep === 'input'"
-              color="primary"
-              size="large"
-              :disabled="cardLast4.length < 4"
-              @click="simulateCardPayment"
-            >
-              <v-icon start>mdi-contactless-payment</v-icon>
-              Procesar Pago
-            </v-btn>
-          </v-card-actions>
-        </template>
-
-        <!-- === PASO 3: Procesando === -->
-        <template v-if="checkoutStep === 'processing'">
-          <div class="pa-12 text-center">
-            <v-progress-circular indeterminate color="success" size="64" width="4" class="mb-4" />
-            <p class="text-h6 font-weight-medium">Registrando venta...</p>
-            <p class="text-caption text-medium-emphasis">Actualizando inventario y generando factura</p>
-          </div>
-        </template>
-
-        <!-- === PASO 4: Venta Exitosa === -->
-        <template v-if="checkoutStep === 'done'">
-          <div class="pa-6 text-center">
-            <div class="success-icon-wrapper mb-3">
-              <v-icon size="72" color="success" class="success-icon-animate">mdi-check-circle</v-icon>
             </div>
-            <h3 class="text-h5 text-success font-weight-bold mb-2">¡Venta Exitosa!</h3>
-            <p class="text-body-2 text-medium-emphasis mb-1">
-              {{ lastSaleResponse?.message }}
-            </p>
-            <div v-if="carritoStore.paymentMethod === 'efectivo' && montoRecibido" class="cambio-resultado neo-card-pressed pa-3 mt-3 d-inline-block">
-              <span class="text-caption text-medium-emphasis d-block">Cambio</span>
-              <span class="text-h5 text-success font-weight-bold">{{ formatHNL(cambio) }}</span>
-            </div>
-          </div>
 
-          <v-card-actions class="pa-6 pt-0 d-flex flex-column ga-2">
-            <v-btn
-              color="primary"
-              size="large"
-              block
-              prepend-icon="mdi-receipt-text"
-              @click="openFactura"
-            >
-              Ver Factura
-            </v-btn>
-            <v-btn
-              variant="text"
-              block
-              @click="showCheckout = false"
-            >
-              Cerrar
-            </v-btn>
-          </v-card-actions>
-        </template>
+            <!-- === PASO 4: Venta Exitosa === -->
+            <div v-else-if="checkoutStep === 'done'" key="done" class="checkout-step-container">
+              <div class="pa-8 text-center pt-10 pb-6">
+                <div class="success-icon-wrapper mb-5">
+                  <div class="neo-circle mx-auto" style="width: 100px; height: 100px; background: rgba(76, 175, 80, 0.1);">
+                    <v-icon size="64" color="success" class="success-icon-animate">mdi-check-bold</v-icon>
+                  </div>
+                </div>
+                <h2 class="text-h4 text-success font-weight-black mb-3 text-uppercase" style="letter-spacing: 1px;">¡Venta Exitosa!</h2>
+                <p class="text-body-1 text-medium-emphasis mb-6">
+                  {{ lastSaleResponse?.message || 'La venta ha sido registrada correctamente en el sistema.' }}
+                </p>
+                <div v-if="facturaData?.paymentMethod === 'efectivo' && facturaData?.montoRecibido" class="cambio-resultado neo-card-pressed rounded-xl pa-5 d-inline-block w-100">
+                  <span class="text-button text-medium-emphasis d-block mb-1">Tu Cambio:</span>
+                  <span class="text-h3 text-success font-weight-black">{{ formatHNL(facturaData.cambio || 0) }}</span>
+                </div>
+              </div>
+
+              <v-card-actions class="pa-6 pt-2 pb-6 d-flex flex-column" style="gap: 16px;">
+                <v-btn
+                  color="primary"
+                  variant="elevated"
+                  size="x-large"
+                  rounded="pill"
+                  block
+                  class="print-btn font-weight-bold text-body-1"
+                  prepend-icon="mdi-receipt-text"
+                  @click="openFactura"
+                >
+                  Ver Factura Completa
+                </v-btn>
+                <v-btn
+                  variant="tonal"
+                  color="medium-emphasis"
+                  rounded="pill"
+                  size="large"
+                  block
+                  class="font-weight-bold"
+                  @click="showCheckout = false"
+                >
+                  Nueva Venta
+                </v-btn>
+              </v-card-actions>
+            </div>
+          </transition>
+        </div>
       </v-card>
     </v-dialog>
 
@@ -2407,45 +2433,118 @@ function formatHNL(value: number): string {
   box-shadow: 0 6px 20px rgba(76, 175, 80, 0.5) !important;
 }
 
+.select-payment-btn {
+  box-shadow: 0 4px 14px rgba(74, 123, 247, 0.4) !important;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease !important;
+}
+.select-payment-btn:hover {
+  box-shadow: 0 6px 20px rgba(74, 123, 247, 0.5) !important;
+  transform: translateY(-2px);
+}
+
+.print-btn {
+  background: linear-gradient(135deg, #4A7BF7 0%, #6B93FF 100%) !important;
+  color: white !important;
+  box-shadow: 0 6px 16px rgba(74, 123, 247, 0.35) !important;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease !important;
+  letter-spacing: 0.5px !important;
+}
+
+.print-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(74, 123, 247, 0.45) !important;
+}
+
 /* Payment method cards */
 .payment-method-card {
   padding: 20px 16px;
   text-align: center;
   cursor: pointer;
-  border-radius: var(--neo-radius-sm);
+  border-radius: var(--neo-radius);
   background: var(--neo-bg);
   box-shadow: var(--neo-raised);
-  transition: var(--neo-transition);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.v-theme--dark .payment-method-card {
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .payment-method-card:hover {
   box-shadow: var(--neo-raised-lg);
-  transform: translateY(-2px);
+  transform: translateY(-3px);
 }
 
 .payment-method-card:active {
   box-shadow: var(--neo-pressed);
   transform: scale(0.97);
+  background: var(--neo-bg-alt);
 }
 
 .payment-method-icon {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.payment-method-card:hover .payment-method-icon {
+  transform: scale(1.1) rotate(5deg);
 }
 
 /* ===== Checkout Dialog ===== */
 .checkout-card {
-  overflow: hidden;
+  overflow: hidden !important;
+  border-radius: 24px !important;
+  background-color: var(--neo-bg) !important;
+  box-shadow: var(--neo-raised-lg) !important;
 }
 
 .checkout-steps {
   background: var(--neo-bg-alt);
-  border-radius: var(--neo-radius) var(--neo-radius) 0 0;
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+}
+
+.checkout-content-wrapper {
+  position: relative;
+  overflow: hidden;
+  min-height: 250px; /* Minimum height to prevent bouncy reflows if possible */
+}
+
+/* Transition animations for checkout pages */
+.checkout-slide-enter-active,
+.checkout-slide-leave-active {
+  transition: opacity 0.3s ease, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.checkout-slide-enter-from {
+  opacity: 0;
+  transform: translateX(30px);
+}
+
+.checkout-slide-leave-to {
+  opacity: 0;
+  transform: translateX(-30px);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
 }
 
 .step-indicator {
@@ -2454,73 +2553,85 @@ function formatHNL(value: number): string {
 }
 
 .step-dot {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   background: var(--neo-bg);
   box-shadow: var(--neo-raised-sm);
   color: rgba(0, 0, 0, 0.3);
-  transition: var(--neo-transition);
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .step-dot.active {
   background: linear-gradient(135deg, #4A7BF7, #6B93FF);
   color: white;
-  box-shadow: 0 2px 10px rgba(74, 123, 247, 0.4);
+  box-shadow: 0 4px 12px rgba(74, 123, 247, 0.45);
+  transform: scale(1.1);
 }
 
 .step-line {
-  width: 36px;
-  height: 3px;
+  width: 40px;
+  height: 4px;
   background: var(--neo-bg);
   box-shadow: var(--neo-pressed-sm);
   border-radius: 2px;
-  margin: 0 4px;
+  margin: 0 6px;
   transition: var(--neo-transition);
 }
 
 .step-line.active {
   background: linear-gradient(90deg, #4A7BF7, #6B93FF);
-  box-shadow: 0 1px 4px rgba(74, 123, 247, 0.3);
+  box-shadow: 0 2px 6px rgba(74, 123, 247, 0.35);
 }
 
 /* Total badge in cash step */
 .neo-total-badge {
   display: inline-block;
-  padding: 12px 24px;
-  border-radius: var(--neo-radius-sm);
+  padding: 16px 28px;
+  border-radius: var(--neo-radius);
   background: var(--neo-bg-alt);
   box-shadow: var(--neo-pressed);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* Quick amount buttons */
 .quick-amount-btn {
-  font-weight: 600 !important;
-  letter-spacing: 0 !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.5px !important;
+  transition: all 0.25s ease !important;
+}
+
+.quick-amount-btn--active {
+  background: linear-gradient(135deg, #43A047, #66BB6A) !important;
+  color: white !important;
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4) !important;
+  transform: scale(1.05);
 }
 
 /* Change box */
 .cambio-box {
-  padding: 20px;
-  border-radius: var(--neo-radius-sm);
-  transition: var(--neo-transition);
+  padding: 24px;
+  border-radius: var(--neo-radius);
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  margin-bottom: 20px;
 }
 
 .cambio-box--valid {
   background: var(--neo-bg-alt);
   box-shadow: var(--neo-pressed);
-  border: 2px solid rgb(var(--v-theme-success));
+  border: 2px solid rgba(var(--v-theme-success), 0.5);
+  transform: scale(1.02);
 }
 
 .cambio-box--invalid {
-  background: var(--neo-bg-alt);
-  box-shadow: var(--neo-pressed);
-  border: 2px solid rgb(var(--v-theme-error));
+  background: var(--neo-bg);
+  box-shadow: var(--neo-pressed-sm);
+  border: 2px solid rgba(var(--v-theme-error), 0.3);
 }
 
 /* Success animation */
@@ -2530,17 +2641,21 @@ function formatHNL(value: number): string {
 
 @keyframes success-bounce {
   0% { transform: scale(0); opacity: 0; }
-  50% { transform: scale(1.2); }
+  50% { transform: scale(1.25); }
   70% { transform: scale(0.95); }
   100% { transform: scale(1); opacity: 1; }
 }
 
 .success-icon-animate {
-  animation: success-bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: success-bounce 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
 .cambio-resultado {
-  border-radius: var(--neo-radius-sm);
+  border-radius: var(--neo-radius);
+  transition: transform 0.3s ease;
+}
+.cambio-resultado:hover {
+  transform: translateY(-2px);
 }
 
 /* ===== Mobile ===== */

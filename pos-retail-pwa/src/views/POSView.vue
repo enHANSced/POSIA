@@ -1041,8 +1041,8 @@ function formatHNL(value: number): string {
           <!-- Acciones -->
           <v-card-actions class="pa-4 pt-2">
             <v-btn
-              color="rgba(244, 67, 54, 0.1)"
-              class="text-error"
+              :color="carritoStore.items.length === 0 ? 'rgb(250, 250, 250)' : 'rgba(244, 67, 54, 0.1)'"
+              :class="carritoStore.items.length === 0 ? 'text-medium-emphasis' : 'text-error'"
               size="small"
               variant="elevated"
               @click="carritoStore.clearCart()"

@@ -36,6 +36,10 @@ const scanSnackbarText = ref('')
 let snackbarTimer: ReturnType<typeof setTimeout> | null = null
 let scannerCartPulseTimer: ReturnType<typeof setTimeout> | null = null
 
+// Animación al actualizar total del carrito
+const totalUpdated = ref(false)
+let totalUpdateTimer: ReturnType<typeof setTimeout> | null = null
+
 // Scanner UI state
 const showManualEntry = ref(false)
 const torchOn = ref(false)
@@ -117,6 +121,7 @@ onUnmounted(() => {
   if (snackbarTimer) clearTimeout(snackbarTimer)
   if (scanFlashTimer) clearTimeout(scanFlashTimer)
   if (scannerCartPulseTimer) clearTimeout(scannerCartPulseTimer)
+  if (totalUpdateTimer) clearTimeout(totalUpdateTimer)
 })
 
 watch(showScanner, async (open) => {
@@ -133,6 +138,13 @@ watch(showScanner, async (open) => {
   } else {
     await clearScanner()
   }
+})
+
+// Animar total cuando el carrito cambia
+watch(() => carritoStore.getTotal(), () => {
+  if (totalUpdateTimer) clearTimeout(totalUpdateTimer)
+  totalUpdated.value = true
+  totalUpdateTimer = setTimeout(() => { totalUpdated.value = false }, 500)
 })
 
 // Reset checkout al abrir
@@ -881,24 +893,25 @@ function formatHNL(value: number): string {
       <v-col cols="12" md="5" lg="4">
         <v-card class="carrito-card neo-animate-in" height="calc(100vh - 120px)">
           <!-- Header del carrito -->
-          <div class="carrito-header pa-4 d-flex align-center">
-            <div class="neo-circle-sm mr-3" style="background: linear-gradient(135deg, #66BB6A, #81C784);">
+          <div class="carrito-header pa-4 d-flex align-center" :class="{ 'carrito-header--pulse': scannerCartPulse }">
+            <div class="neo-circle-sm mr-3 carrito-header-icon" style="background: linear-gradient(135deg, #66BB6A, #81C784);">
               <v-icon color="white" size="18">mdi-cart</v-icon>
             </div>
             <span class="text-subtitle-1 font-weight-bold">Carrito</span>
             <v-spacer />
-            <v-chip color="primary" variant="tonal" size="small">
+            <v-chip color="primary" variant="tonal" size="small" class="font-weight-bold">
               {{ carritoStore.getItemCount() }} items
             </v-chip>
           </div>
 
           <!-- Lista de items -->
           <v-card-text class="pa-0" style="height: calc(100% - 280px); overflow-y: auto;">
-            <div v-if="carritoStore.items.length > 0" class="pa-3">
+            <TransitionGroup v-if="carritoStore.items.length > 0" name="cart-item" tag="div" class="pa-3" style="position: relative;">
               <div
                 v-for="(item, index) in carritoStore.items"
-                :key="index"
+                :key="item.product.id"
                 class="cart-item mb-2 pa-3"
+                :class="{ 'cart-item--just-added': lastAddedId === item.product.id }"
               >
                 <div class="d-flex align-center">
                   <v-avatar size="42" rounded="lg" class="mr-3">
@@ -910,15 +923,15 @@ function formatHNL(value: number): string {
                   <div class="flex-grow-1" style="min-width: 0;">
                     <div class="d-flex justify-space-between align-center">
                       <span class="text-body-2 font-weight-medium text-truncate">{{ item.product.name }}</span>
-                      <v-btn icon size="x-small" variant="text" color="error" class="ml-1" @click.stop="carritoStore.removeItem(index)">
+                      <button class="cart-item-delete ml-2" @click.stop="carritoStore.removeItem(index)" aria-label="Eliminar del carrito">
                         <v-icon size="14">mdi-close</v-icon>
-                      </v-btn>
+                      </button>
                     </div>
                     <div class="d-flex justify-space-between align-center mt-2">
                       <div class="qty-control">
-                        <v-btn icon size="small" variant="text" @click.stop="carritoStore.decrementItem(index)">
-                          <v-icon size="18">mdi-minus</v-icon>
-                        </v-btn>
+                        <button class="qty-btn qty-btn--minus" @click.stop="carritoStore.decrementItem(index)" aria-label="Decrementar cantidad">
+                          <v-icon size="16">mdi-minus</v-icon>
+                        </button>
                         <template v-if="editingQtyIndex === index">
                           <input
                             type="number"
@@ -941,11 +954,11 @@ function formatHNL(value: number): string {
                             title="Clic para editar cantidad"
                           >{{ productSellsByWeight(item.product) ? item.quantity.toFixed(2) : item.quantity }}</span>
                         </template>
-                        <v-btn icon size="small" variant="text" @click.stop="carritoStore.incrementItem(index)">
-                          <v-icon size="18">mdi-plus</v-icon>
-                        </v-btn>
+                        <button class="qty-btn qty-btn--plus" @click.stop="carritoStore.incrementItem(index)" aria-label="Incrementar cantidad">
+                          <v-icon size="16">mdi-plus</v-icon>
+                        </button>
                       </div>
-                      <span class="text-body-2 font-weight-bold text-primary">{{ formatHNL(item.subtotal + item.tax) }}</span>
+                      <span class="cart-item-price">{{ formatHNL(item.subtotal + item.tax) }}</span>
                     </div>
                     <div class="text-caption text-medium-emphasis mt-1">
                       {{ formatHNL(item.product.price) }} × {{ item.quantity }}
@@ -953,12 +966,12 @@ function formatHNL(value: number): string {
                   </div>
                 </div>
               </div>
-            </div>
+            </TransitionGroup>
 
             <!-- Carrito vacío -->
-            <div v-else class="text-center py-12 px-4">
-              <div class="neo-circle mx-auto mb-4" style="width: 72px; height: 72px;">
-                <v-icon size="32" color="grey-lighten-1">mdi-cart-outline</v-icon>
+            <div v-else class="text-center py-10 px-4">
+              <div class="cart-empty-icon mx-auto mb-4">
+                <v-icon size="34" color="grey-lighten-1">mdi-cart-outline</v-icon>
               </div>
               <p class="text-subtitle-2 text-medium-emphasis mb-1">Carrito vacío</p>
               <p class="text-caption text-disabled">Toca un producto para agregarlo</p>
@@ -1020,7 +1033,7 @@ function formatHNL(value: number): string {
               <v-divider class="mb-3" />
               <div class="d-flex justify-space-between align-center">
                 <span class="text-subtitle-1 font-weight-bold">Total</span>
-                <span class="text-h6 font-weight-bold text-primary">{{ formatHNL(carritoStore.getTotal()) }}</span>
+                <span class="text-h6 font-weight-bold text-primary" :class="{ 'total-updated': totalUpdated }">{{ formatHNL(carritoStore.getTotal()) }}</span>
               </div>
             </div>
           </div>
@@ -1040,15 +1053,15 @@ function formatHNL(value: number): string {
             </v-btn>
             <v-spacer />
             <v-btn
-              color="rgba(76, 175, 80, 0.1)"
               size="x-large"
               variant="elevated"
               @click="showCheckout = true"
               :disabled="carritoStore.items.length === 0"
-              class="px-10 cobrar-btn text-success"
+              class="px-8 cobrar-btn"
+              :class="{ 'cobrar-btn--active': carritoStore.items.length > 0 }"
             >
-              <v-icon start size="24">mdi-cash-register</v-icon>
-              <span class="text-subtitle-1 font-weight-bold">Cobrar</span>
+              <v-icon start size="22">mdi-cash-register</v-icon>
+              <span class="font-weight-bold">Cobrar</span>
             </v-btn>
           </v-card-actions>
         </v-card>
@@ -2190,17 +2203,95 @@ function formatHNL(value: number): string {
 .carrito-header {
   background-color: var(--neo-bg-alt);
   border-radius: var(--neo-radius) var(--neo-radius) 0 0;
+  transition: background-color 0.35s ease;
+}
+
+.carrito-header--pulse {
+  background-color: rgba(var(--v-theme-success), 0.12);
+}
+
+.carrito-header-icon {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.carrito-header--pulse .carrito-header-icon {
+  animation: header-icon-pulse 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes header-icon-pulse {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.3) rotate(-8deg); }
+  100% { transform: scale(1) rotate(0deg); }
 }
 
 .cart-item {
   border-radius: var(--neo-radius-xs);
   box-shadow: var(--neo-flat) !important;
-  transition: var(--neo-transition);
+  transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   background: var(--neo-bg);
+  position: relative;
+  overflow: hidden;
 }
 
 .cart-item:hover {
   box-shadow: var(--neo-raised-sm) !important;
+}
+
+/* ===== Cart item TransitionGroup animations ===== */
+.cart-item-enter-active {
+  transition: opacity 0.36s cubic-bezier(0.34, 1.56, 0.64, 1),
+              transform 0.36s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cart-item-enter-from {
+  opacity: 0;
+  transform: translateX(28px) scale(0.93);
+}
+
+.cart-item-enter-to {
+  opacity: 1;
+  transform: translateX(0) scale(1);
+}
+
+.cart-item-leave-active {
+  transition: opacity 0.26s ease-in,
+              transform 0.26s ease-in,
+              max-height 0.3s ease,
+              margin-bottom 0.3s ease,
+              padding-top 0.3s ease,
+              padding-bottom 0.3s ease;
+  max-height: 200px;
+  overflow: hidden;
+}
+
+.cart-item-leave-from {
+  opacity: 1;
+  transform: translateX(0) scale(1);
+  max-height: 200px;
+}
+
+.cart-item-leave-to {
+  opacity: 0;
+  transform: translateX(-24px) scale(0.92);
+  max-height: 0;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.cart-item-move {
+  transition: transform 0.34s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Glow bounce al agregar item */
+.cart-item--just-added {
+  animation: cart-item-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes cart-item-pop {
+  0%   { box-shadow: var(--neo-flat) !important; }
+  40%  { box-shadow: 0 0 0 3px rgba(var(--v-theme-success), 0.55), var(--neo-raised-sm) !important; }
+  100% { box-shadow: var(--neo-flat) !important; }
 }
 
 /* Quantity control pill */
@@ -2261,10 +2352,50 @@ function formatHNL(value: number): string {
   position: relative;
   overflow: hidden;
   letter-spacing: 0.5px !important;
+  transition: box-shadow 0.25s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
 }
 
 .cobrar-btn:hover {
   transform: translateY(-1px);
+}
+
+/* Cobrar activo: gradiente verde + shimmer */
+.cobrar-btn--active {
+  background: linear-gradient(135deg, #43A047 0%, #66BB6A 60%, #81C784 100%) !important;
+  color: white !important;
+  box-shadow: 0 4px 16px rgba(76, 175, 80, 0.45) !important;
+}
+
+.cobrar-btn--active:hover {
+  box-shadow: 0 6px 22px rgba(76, 175, 80, 0.58) !important;
+  transform: translateY(-2px);
+}
+
+.cobrar-btn--active:active {
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.35) !important;
+  transform: translateY(1px) scale(0.98);
+}
+
+@keyframes cobrar-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.cobrar-btn--active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.22) 45%,
+    rgba(255, 255, 255, 0.05) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: cobrar-shimmer 2.8s linear infinite;
+  border-radius: inherit;
+  pointer-events: none;
 }
 
 /* Confirmar button in checkout */
@@ -2709,5 +2840,122 @@ function formatHNL(value: number): string {
 
 .min-width-0 {
   min-width: 0;
+}
+
+/* ===== Nuevos estilos neumórficos del carrito ===== */
+
+/* Estado vacío flotante */
+.cart-empty-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--neo-bg);
+  box-shadow: var(--neo-raised);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: cart-empty-float 3.2s ease-in-out infinite;
+}
+
+@keyframes cart-empty-float {
+  0%, 100% {
+    transform: translateY(0);
+    box-shadow: var(--neo-raised);
+  }
+  50% {
+    transform: translateY(-9px);
+    box-shadow: var(--neo-raised-lg);
+  }
+}
+
+/* Botones de cantidad neumórficos nativos */
+.qty-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: var(--neo-bg);
+  box-shadow: var(--neo-raised-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  flex-shrink: 0;
+  transition: box-shadow 0.15s ease, transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.qty-btn:hover {
+  box-shadow: var(--neo-raised);
+}
+
+.qty-btn:active {
+  box-shadow: var(--neo-pressed-sm) !important;
+  transform: scale(0.85);
+}
+
+.qty-btn--plus {
+  color: rgb(var(--v-theme-primary));
+}
+
+.qty-btn--minus {
+  opacity: 0.75;
+}
+
+.qty-btn--minus:hover {
+  opacity: 1;
+}
+
+/* Botón eliminar del carrito */
+.cart-item-delete {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: var(--neo-bg);
+  box-shadow: var(--neo-raised-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgb(var(--v-theme-error));
+  opacity: 0.6;
+  flex-shrink: 0;
+  transition: opacity 0.2s ease, box-shadow 0.2s ease, transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cart-item-delete:hover {
+  opacity: 1;
+  box-shadow: var(--neo-raised);
+}
+
+.cart-item-delete:active {
+  box-shadow: var(--neo-pressed-sm) !important;
+  transform: scale(0.85);
+}
+
+/* Badge de precio por item */
+.cart-item-price {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: rgb(var(--v-theme-primary));
+  background: var(--neo-bg-alt);
+  box-shadow: var(--neo-pressed-sm);
+  border-radius: 10px;
+  padding: 3px 10px;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+/* Bounce del total al cambiar */
+.total-updated {
+  animation: total-bounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: inline-block;
+}
+
+@keyframes total-bounce {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
 }
 </style>

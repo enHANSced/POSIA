@@ -81,14 +81,15 @@ function renderBold(text: string): string {
         </div>
         <h3 class="text-subtitle-1 font-weight-bold flex-grow-1">{{ titulo }}</h3>
         <v-btn
-          variant="text"
+          variant="elevated"
           size="small"
-          color="primary"
+          color="surface"
+          class="text-primary"
           :loading="interpretando"
           @click="interpretarConIA"
         >
-          <v-icon start size="16">mdi-sparkles</v-icon>
-          Interpretar con IA
+          <v-icon start size="16">mdi-robot-happy-outline</v-icon>
+          Explicar
         </v-btn>
       </div>
 

@@ -1028,9 +1028,10 @@ function formatHNL(value: number): string {
           <!-- Acciones -->
           <v-card-actions class="pa-4 pt-2">
             <v-btn
-              color="error"
-              variant="outlined"
+              color="rgba(244, 67, 54, 0.1)"
+              class="text-error"
               size="small"
+              variant="elevated"
               @click="carritoStore.clearCart()"
               :disabled="carritoStore.items.length === 0"
             >
@@ -1039,12 +1040,12 @@ function formatHNL(value: number): string {
             </v-btn>
             <v-spacer />
             <v-btn
-              color="success"
+              color="rgba(76, 175, 80, 0.1)"
               size="x-large"
+              variant="elevated"
               @click="showCheckout = true"
               :disabled="carritoStore.items.length === 0"
-              class="px-10 cobrar-btn"
-              elevation="4"
+              class="px-10 cobrar-btn text-success"
             >
               <v-icon start size="24">mdi-cash-register</v-icon>
               <span class="text-subtitle-1 font-weight-bold">Cobrar</span>
@@ -1411,10 +1412,10 @@ function formatHNL(value: number): string {
           <v-btn
             v-if="mobile"
             icon
-            :variant="torchOn ? 'tonal' : 'text'"
-            :color="torchOn ? 'warning' : undefined"
+            variant="elevated"
+            color="surface"
+            :class="['ml-1', torchOn ? 'text-warning' : 'text-medium-emphasis']"
             size="small"
-            class="ml-1"
             @click="toggleTorch"
             aria-label="Activar/desactivar linterna"
           >
@@ -2248,12 +2249,10 @@ function formatHNL(value: number): string {
 .cobrar-btn {
   position: relative;
   overflow: hidden;
-  box-shadow: 0 4px 14px rgba(76, 175, 80, 0.4) !important;
   letter-spacing: 0.5px !important;
 }
 
 .cobrar-btn:hover {
-  box-shadow: 0 6px 20px rgba(76, 175, 80, 0.5) !important;
   transform: translateY(-1px);
 }
 

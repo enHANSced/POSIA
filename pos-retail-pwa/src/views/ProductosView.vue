@@ -1149,8 +1149,9 @@ function getCategoryName(categoryId: string | null): string {
             v-if="scannerTorchSupported"
             icon
             size="small"
-            :variant="scannerTorchOn ? 'tonal' : 'text'"
-            :color="scannerTorchOn ? 'warning' : undefined"
+            variant="elevated"
+            color="surface"
+            :class="scannerTorchOn ? 'text-warning' : 'text-medium-emphasis'"
             @click="toggleScannerTorch"
             aria-label="Activar/desactivar linterna"
           >
@@ -1234,12 +1235,16 @@ function getCategoryName(categoryId: string | null): string {
           <v-btn variant="text" @click="cerrarCamara">Cancelar</v-btn>
           <v-btn
             v-if="cameraTorchSupported"
-            :variant="cameraTorchOn ? 'tonal' : 'text'"
-            :color="cameraTorchOn ? 'warning' : undefined"
+            icon
+            size="small"
+            variant="elevated"
+            color="surface"
+            :class="cameraTorchOn ? 'text-warning' : 'text-medium-emphasis'"
             @click="toggleCameraTorch"
+            class="ml-2"
+            aria-label="Activar/desactivar linterna"
           >
-            <v-icon start>{{ cameraTorchOn ? 'mdi-flashlight-off' : 'mdi-flashlight' }}</v-icon>
-            {{ cameraTorchOn ? 'Apagar linterna' : 'Encender linterna' }}
+            <v-icon>{{ cameraTorchOn ? 'mdi-flashlight-off' : 'mdi-flashlight' }}</v-icon>
           </v-btn>
           <v-spacer />
           <v-btn

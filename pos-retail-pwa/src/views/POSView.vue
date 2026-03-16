@@ -1962,21 +1962,30 @@ function formatHNL(value: number): string {
 /* ===== Product Cards ===== */
 .producto-card {
   cursor: pointer;
-  transition: var(--neo-transition);
+  background-color: var(--neo-bg) !important;
+  border-radius: var(--neo-radius) !important;
+  transition: box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   box-shadow: var(--neo-raised) !important;
   user-select: none;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.v-theme--dark .producto-card {
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .producto-card:hover {
-  transform: translateY(-3px);
+  transform: translateY(-4px) scale(1.015);
   box-shadow: var(--neo-raised-lg) !important;
 }
 
 .producto-card:active,
 .producto-card.producto-card-added {
   box-shadow: var(--neo-pressed) !important;
-  transform: scale(0.97);
+  background-color: var(--neo-bg-alt) !important;
+  transform: translateY(3px) scale(0.95);
+  border-color: transparent;
 }
 
 .producto-card-low-stock {
@@ -2052,6 +2061,8 @@ function formatHNL(value: number): string {
 .producto-img-container {
   position: relative;
   overflow: hidden;
+  margin: 10px 10px 0 10px;
+  border-radius: var(--neo-radius-sm);
 }
 
 .producto-category-badge {

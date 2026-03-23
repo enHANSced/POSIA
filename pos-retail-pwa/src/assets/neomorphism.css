@@ -249,6 +249,45 @@
   border-radius: 0 !important;
 }
 
+/* ================================================================
+   Tablas Neomórficas
+   ================================================================ */
+
+.neo-table {
+  background: transparent !important;
+}
+
+.neo-table .v-table__wrapper > table > thead > tr > th {
+  background-color: var(--neo-bg-alt) !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.5px;
+  color: rgba(0, 0, 0, 0.6) !important;
+  border-bottom: 2px solid rgba(0,0,0,0.05) !important;
+}
+
+.v-theme--dark .neo-table .v-table__wrapper > table > thead > tr > th {
+  color: rgba(255, 255, 255, 0.7) !important;
+  border-bottom: 2px solid rgba(255,255,255,0.05) !important;
+}
+
+.neo-table .v-table__wrapper > table > tbody > tr {
+  transition: background-color 0.2s ease;
+}
+
+.neo-table .v-table__wrapper > table > tbody > tr:hover {
+  background-color: rgba(var(--v-theme-primary), 0.04) !important;
+}
+
+.neo-table .v-table__wrapper > table > tbody > tr > td {
+  border-bottom: 1px dashed rgba(0,0,0,0.05) !important;
+}
+
+.v-theme--dark .neo-table .v-table__wrapper > table > tbody > tr > td {
+  border-bottom: 1px dashed rgba(255,255,255,0.05) !important;
+}
+
 .v-tab--selected {
   box-shadow: var(--neo-raised-sm) !important;
 }

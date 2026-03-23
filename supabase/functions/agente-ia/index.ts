@@ -23,12 +23,14 @@ Tu contexto cubre TODO el sistema:
 - Preferencias de notificaciones y operación general
 
 CAPACIDADES ESPECIALES - BÚSQUEDA WEB:
-Tienes acceso a Google Search para buscar información en tiempo real de internet. ÚSALO ACTIVAMENTE cuando:
+Tienes acceso a Google Search para buscar información en tiempo real de internet. ÚSALO ACTIVAMENTE solo cuando:
 - El usuario pregunte sobre precios de productos: busca en tiendas y supermercados de Honduras (La Colonia, PriceSmart, Walmart Honduras, Diunsa, etc.)
-- Necesites comparar precios del mercado local con los precios del sistema
 - El usuario pregunte cosas que requieran datos actualizados (tendencias, temporadas, etc.)
-- Quieras validar precios sugeridos contra precios reales del mercado hondureño
-- Busques información sobre productos, proveedores o competencia en Honduras
+
+REGLA ESTRICTA DE ENFOQUE:
+- NO incluyas análisis de mercado, comparación de precios externos, ni estrategia de precios si el usuario no lo pidió explícitamente.
+- Si no hay fuentes verificables, NO afirmes precios de mercado ni menciones tiendas externas.
+- Para consultas operativas (stock bajo, reposición, inventario, alertas, desempeño interno), enfócate solo en datos internos del sistema.
 
 Cuando uses búsqueda web para sugerir precios o información, SIEMPRE menciona las fuentes de donde obtuviste la información.
 
@@ -42,7 +44,7 @@ Objetivos:
 5) Cuando sea relevante, buscar precios y datos en internet para comparar con los datos internos del sistema
 
 SUGERENCIAS DE SEGUIMIENTO:
-Al final de CADA respuesta, agrega un bloque especial con 3 preguntas de seguimiento relevantes, que sean como sugerencias de prompt al usuario para continuar la conversacion, que sean breves.
+Al final de CADA respuesta, agrega un bloque especial con 3 prompts de seguimiento relevantes, que sean como sugerencias de prompt al usuario (que parezcan escritas por el usuario, en base al prompt que escribio el anteriormente) para continuar la conversacion, trata que sean breves (Por ejemplo no digas Quieres que analice esto, si no que hazlo como si el usuario fue quien lo dijo: Analiza esto).
 Usa EXACTAMENTE este formato (las etiquetas son obligatorias):
 [SUGERENCIAS]
 1. Primera pregunta de seguimiento específica y accionable
@@ -624,31 +626,40 @@ async function fetchBusinessContext(supabaseAdmin: ReturnType<typeof createClien
  * Retorna true para preguntas sobre precios, mercado, competencia, productos externos, etc.
  */
 function shouldUseWebSearch(mensaje: string): boolean {
+  // Debe existir intención explícita de precios/mercado externo para habilitar búsqueda web.
   const webSearchPatterns = [
-    /preci(o|os)\s+(de|del|en|mercado|competencia|actual|real)/i,
-    /cu[aá]nto\s+(cuesta|vale|cobra)/i,
-    /compar(ar|a|ación)\s+(preci|con\s+el\s+mercado)/i,
+    /compar(a|ar|aci[oó]n)\s+de\s+precios?/i,
+    /precios?\s+del\s+mercado/i,
+    /precio\s+de\s+la\s+competencia/i,
+    /investig(a|ar)\s+precios?/i,
+    /busca(r)?\s+precios?/i,
+    /cu[aá]nto\s+cuesta/i,
+    /precio\s+sugerido/i,
+    /ajust(e|ar)\s+precio/i,
     /mercado\s+(local|hondure[ñn]o|actual)/i,
     /competencia/i,
-    /sugerir?\s+preci/i,
-    /precio\s+sugerido/i,
-    /precio\s+de\s+venta/i,
-    /investigar?\s+(precio|producto|mercado)/i,
-    /buscar?\s+(precio|producto|información|info)/i,
-    /tienda|supermercado|pulper[ií]a|la\s+colonia|pricesmart|walmart|diunsa/i,
-    /proveedor/i,
-    /tendencia/i,
-    /temporada/i,
-    /promoci[oó]n/i,
-    /ofertas?\s+(del|en|de)/i,
-    /(analiz|revis)(ar?|a)\s+(precio|producto|margen)/i,
-    /ajust(ar|e)\s+preci/i,
-    /margin|margen/i,
-    /rentabilidad/i,
-    /https?:\/\//i, // URLs in the message
+    /walmart|la\s+colonia|pricesmart|diunsa|supermercado/i,
+    /tendencias?\s+de\s+mercado/i,
+    /temporada\s+de\s+ventas/i,
+    /https?:\/\//i,
   ];
 
   return webSearchPatterns.some(pattern => pattern.test(mensaje));
+}
+
+function removeOffTopicMarketSection(aiMessage: string): string {
+  let cleaned = aiMessage;
+
+  const sectionPatterns = [
+    /\n?🔍\s*An[aá]lisis\s+de\s+Mercado[\s\S]*?(?=\n\[SUGERENCIAS\]|$)/gi,
+    /\n?(?:\*\*|##)?\s*An[aá]lisis\s+de\s+Mercado\s+y\s+Estrategia\s+de\s+Precios[\s\S]*?(?=\n\[SUGERENCIAS\]|$)/gi,
+  ];
+
+  for (const pattern of sectionPatterns) {
+    cleaned = cleaned.replace(pattern, "").trim();
+  }
+
+  return cleaned;
 }
 
 /**
@@ -790,8 +801,7 @@ async function callGemini(
       },
     ],
     generationConfig: {
-      maxOutputTokens: 1500,
-      temperature: 0.55,
+      temperature: 1.0,
     },
   };
 
@@ -1102,6 +1112,13 @@ Deno.serve(async (req: Request) => {
           sourcesCount: webSources.length,
           supportsCount: groundingSupports.length,
         });
+      }
+
+      // Si no se solicitó explícitamente mercado/precios externos o no hay fuentes reales,
+      // eliminamos cualquier bloque de análisis de mercado para mantener enfoque de la consulta.
+      const canIncludeMarketSection = useWebSearch && webSources.length > 0;
+      if (!canIncludeMarketSection) {
+        aiMessage = removeOffTopicMarketSection(aiMessage);
       }
     }
 

@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useProductosStore } from '@/stores/productos'
 import { adjustInventory, fetchInventoryMovements } from '@/services/database'
 import type { Product } from '@/types/supabase'
+
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
+import { playSuccessBeep, playErrorBeep } from '@/composables/useScanSound'
+import { useDisplay } from 'vuetify'
 
 type ErrorWithMessage = {
   message?: string
@@ -10,7 +14,26 @@ type ErrorWithMessage = {
 
 const productosStore = useProductosStore()
 
+const { mobile } = useDisplay()
+
 const searchQuery = ref('')
+const showScanner = ref(false)
+const scannerStatus = ref('')
+const scannerError = ref('')
+let barcodeScanner: Html5Qrcode | null = null
+
+const BARCODE_FORMATS = [
+  Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.EAN_8,
+  Html5QrcodeSupportedFormats.UPC_A,
+  Html5QrcodeSupportedFormats.UPC_E,
+  Html5QrcodeSupportedFormats.CODE_128,
+  Html5QrcodeSupportedFormats.CODE_39,
+  Html5QrcodeSupportedFormats.CODE_93,
+  Html5QrcodeSupportedFormats.ITF,
+  Html5QrcodeSupportedFormats.QR_CODE,
+]
+
 const quickFilter = ref<'all' | 'low' | 'out'>('all')
 const loadingMovements = ref(false)
 const movimientos = ref<any[]>([])
@@ -31,6 +54,60 @@ onMounted(async () => {
     cargarMovimientos(),
   ])
 })
+
+onUnmounted(() => {
+  clearScanner()
+})
+
+watch(showScanner, async (open) => {
+  scannerStatus.value = ''
+  scannerError.value = ''
+  if (open) {
+    await nextTick()
+    await initScanner()
+  } else {
+    await clearScanner()
+  }
+})
+
+async function initScanner() {
+  if (barcodeScanner) return
+  try {
+    barcodeScanner = new Html5Qrcode('inventory-scanner-reader', {
+      formatsToSupport: BARCODE_FORMATS,
+      verbose: false,
+      useBarCodeDetectorIfSupported: true,
+    })
+
+    const isMobile = mobile.value
+    const qrboxSize = isMobile
+      ? { width: Math.min(window.innerWidth - 48, 260), height: 120 }
+      : { width: 300, height: 150 }
+
+    await barcodeScanner.start(
+      { facingMode: 'environment' },
+      { fps: 15, qrbox: qrboxSize, aspectRatio: isMobile ? 1.333 : 1.777778 },
+      async (decodedText) => { await handleBarcode(decodedText) },
+      () => {}
+    )
+  } catch {
+    scannerError.value = 'No se pudo iniciar la cámara de escaneo.'
+  }
+}
+
+async function clearScanner() {
+  if (!barcodeScanner) return
+  try { await barcodeScanner.stop() } catch {} finally { barcodeScanner = null }
+}
+
+async function handleBarcode(code: string) {
+  const barcode = code.trim()
+  if (!barcode) return
+
+  playSuccessBeep()
+  searchQuery.value = barcode
+  showScanner.value = false
+}
 
 const headersInventario = [
   { title: 'Producto', key: 'name' },
@@ -222,6 +299,35 @@ function textoEstadoStock(producto: Product): string {
   return 'Disponible'
 }
 
+// Colores por categoría para placeholder de productos sin imagen
+const CATEGORY_COLORS: Record<string, string> = {
+  bebida: 'linear-gradient(135deg,#42A5F5,#1976D2)',
+  abarrot: 'linear-gradient(135deg,#66BB6A,#388E3C)',
+  limpiez: 'linear-gradient(135deg,#26C6DA,#00838F)',
+  snack: 'linear-gradient(135deg,#FFA726,#E65100)',
+  lácteo: 'linear-gradient(135deg,#AB47BC,#6A1B9A)',
+  electr: 'linear-gradient(135deg,#EF5350,#B71C1C)',
+  planta: 'linear-gradient(135deg,#26A69A,#00695C)',
+}
+
+function getCategoryGradient(producto: any): string {
+  const cat = (producto.categories?.name || producto.name || '').toLowerCase()
+  for (const [key, val] of Object.entries(CATEGORY_COLORS)) {
+    if (cat.includes(key)) return val
+  }
+  // fallback: hash del nombre
+  let hash = 0
+  for (let i = 0; i < cat.length; i++) hash = cat.charCodeAt(i) + ((hash << 5) - hash)
+  const palette = [
+    'linear-gradient(135deg,#4A7BF7,#3A63CC)',
+    'linear-gradient(135deg,#66BB6A,#43A047)',
+    'linear-gradient(135deg,#FFA726,#FB8C00)',
+    'linear-gradient(135deg,#AB47BC,#8E24AA)',
+    'linear-gradient(135deg,#42A5F5,#1E88E5)',
+  ]
+  return palette[Math.abs(hash) % palette.length] as string
+}
+
 function textoTipo(tipo: string): string {
   if (tipo === 'entry') return 'Entrada'
   if (tipo === 'sale') return 'Venta'
@@ -237,7 +343,7 @@ function colorTipoMovimiento(tipo: string): string {
 
 <template>
   <v-container fluid class="pa-4 pa-md-6">
-    <v-card class="mb-4 neo-animate-in">
+    <v-card class="mb-4 neo-animate-in rounded-xl border-0" elevation="0" style="background-color: var(--neo-bg); box-shadow: var(--neo-raised-sm);">
       <v-card-text class="pa-5">
         <div class="d-flex align-center flex-wrap ga-3 mb-4">
           <div class="neo-circle-sm">
@@ -254,37 +360,58 @@ function colorTipoMovimiento(tipo: string): string {
           </v-btn>
         </div>
 
-        <v-row class="mb-1">
+        <v-row class="mb-4">
           <v-col cols="12" sm="4">
             <div class="inventory-stat-card">
-              <p class="text-caption text-medium-emphasis mb-1">Productos</p>
-              <p class="text-h5 font-weight-bold">{{ totalProductos }}</p>
+              <div class="d-flex align-center w-100 mb-2">
+                <v-icon color="primary" class="mr-2">mdi-package-variant-closed</v-icon>
+                <p class="text-caption text-medium-emphasis font-weight-medium mb-0">Total Productos</p>
+              </div>
+              <p class="text-h4 font-weight-bold mt-auto">{{ totalProductos }}</p>
             </div>
           </v-col>
           <v-col cols="12" sm="4">
             <div class="inventory-stat-card">
-              <p class="text-caption text-medium-emphasis mb-1">Stock bajo</p>
-              <p class="text-h5 font-weight-bold text-warning">{{ stockBajoCount }}</p>
+              <div class="d-flex align-center w-100 mb-2">
+                <v-icon color="warning" class="mr-2">mdi-alert-circle-outline</v-icon>
+                <p class="text-caption text-medium-emphasis font-weight-medium mb-0">Stock Bajo</p>
+              </div>
+              <p class="text-h4 font-weight-bold text-warning mt-auto">{{ stockBajoCount }}</p>
             </div>
           </v-col>
           <v-col cols="12" sm="4">
             <div class="inventory-stat-card">
-              <p class="text-caption text-medium-emphasis mb-1">Sin stock</p>
-              <p class="text-h5 font-weight-bold text-error">{{ sinStockCount }}</p>
+              <div class="d-flex align-center w-100 mb-2">
+                <v-icon color="error" class="mr-2">mdi-close-circle-outline</v-icon>
+                <p class="text-caption text-medium-emphasis font-weight-medium mb-0">Sin Stock</p>
+              </div>
+              <p class="text-h4 font-weight-bold text-error mt-auto">{{ sinStockCount }}</p>
             </div>
           </v-col>
         </v-row>
 
-        <v-row class="mb-2" align="center">
+        <v-row class="mb-4" align="center">
           <v-col cols="12" md="7">
             <v-text-field
               v-model="searchQuery"
               label="Buscar por nombre, SKU o código"
               prepend-inner-icon="mdi-magnify"
+              placeholder="Ej. Refresco, 1001..."
               clearable
+              variant="outlined"
               density="comfortable"
               hide-details
-            />
+            >
+              <template #append-inner>
+                <v-btn
+                  icon="mdi-barcode-scan"
+                  variant="text"
+                  density="comfortable"
+                  color="primary"
+                  @click="showScanner = true"
+                ></v-btn>
+              </template>
+            </v-text-field>
           </v-col>
           <v-col cols="12" md="5">
             <div class="d-flex flex-wrap ga-2 justify-md-end">
@@ -320,19 +447,39 @@ function colorTipoMovimiento(tipo: string): string {
           :loading="productosStore.loading"
           :headers="headersInventario"
           item-value="id"
+          class="neo-table"
         >
+          <template #item.name="{ item }">
+            <div class="d-flex align-center py-2">
+              <v-avatar size="44" rounded="lg" class="mr-3 flex-shrink-0" color="surface-variant">
+                <v-img v-if="item.image_url" :src="item.image_url" cover />
+                <div v-else class="w-100 h-100 d-flex align-center justify-center" :style="{ background: getCategoryGradient(item) }">
+                  <v-icon size="20" color="white" style="opacity: 0.85">mdi-package-variant</v-icon>
+                </div>
+              </v-avatar>
+              <div>
+                <div class="font-weight-bold text-body-2">{{ item.name }}</div>
+                <div v-if="item.categories?.name" class="text-caption text-medium-emphasis">
+                  {{ item.categories.name }}
+                </div>
+              </div>
+            </div>
+          </template>
+
           <template #item.stock="{ item }">
-            <v-chip :color="colorStock(item)" size="small" variant="tonal">
-              {{ item.stock || 0 }}
-            </v-chip>
+            <div class="d-flex flex-column align-center justify-center">
+              <span class="text-body-1 font-weight-bold" :class="colorStock(item) === 'error' ? 'text-error' : colorStock(item) === 'warning' ? 'text-warning' : 'text-primary'">
+                {{ item.stock || 0 }}
+              </span>
+            </div>
           </template>
 
           <template #item.min_stock="{ item }">
-            {{ item.min_stock || 5 }}
+            <span class="text-medium-emphasis">{{ item.min_stock || 5 }}</span>
           </template>
 
           <template #item.estado="{ item }">
-            <v-chip :color="colorStock(item)" size="x-small" variant="tonal">
+            <v-chip :color="colorStock(item)" size="small" variant="tonal" class="font-weight-medium">
               {{ textoEstadoStock(item) }}
             </v-chip>
           </template>
@@ -353,7 +500,7 @@ function colorTipoMovimiento(tipo: string): string {
       </v-card-text>
     </v-card>
 
-    <v-card class="neo-animate-in">
+    <v-card class="neo-animate-in rounded-xl border-0" elevation="0" style="background-color: var(--neo-bg); box-shadow: var(--neo-raised-sm);">
       <v-card-text class="pa-5">
         <div class="d-flex align-center mb-3">
           <h3 class="text-subtitle-1 font-weight-bold">Movimientos recientes</h3>
@@ -366,26 +513,35 @@ function colorTipoMovimiento(tipo: string): string {
           :loading="loadingMovements"
           :headers="headersMovimientos"
           item-value="id"
-          density="compact"
+          density="comfortable"
+          class="neo-table"
         >
           <template #item.created_at="{ item }">
-            {{ formatoFecha(item.created_at) }}
+            <span class="text-caption text-medium-emphasis">
+              {{ formatoFecha(item.created_at) }}
+            </span>
+          </template>
+
+          <template #item.products.name="{ item }">
+            <span class="font-weight-medium text-body-2">{{ item.products?.name || 'Producto desconocido' }}</span>
           </template>
 
           <template #item.type="{ item }">
-            <v-chip size="x-small" variant="tonal" :color="colorTipoMovimiento(item.type)">
+            <v-chip size="small" variant="flat" :color="colorTipoMovimiento(item.type)" class="font-weight-bold" style="opacity: 0.9;">
               {{ textoTipo(item.type) }}
             </v-chip>
           </template>
 
           <template #item.quantity="{ item }">
-            <span :class="item.quantity >= 0 ? 'text-success font-weight-medium' : 'text-error font-weight-medium'">
+            <span class="text-body-1" :class="item.quantity >= 0 ? 'text-success font-weight-black' : 'text-error font-weight-black'">
               {{ item.quantity > 0 ? `+${item.quantity}` : item.quantity }}
             </span>
           </template>
 
           <template #item.reason="{ item }">
-            {{ item.reason || 'Sin detalle' }}
+            <span class="text-caption text-medium-emphasis">
+              {{ item.reason || 'Sin detalle' }}
+            </span>
           </template>
 
           <template #no-data>
@@ -397,8 +553,28 @@ function colorTipoMovimiento(tipo: string): string {
       </v-card-text>
     </v-card>
 
+    <v-dialog v-model="showScanner" max-width="500">
+      <v-card class="scanner-card border-0" rounded="xl" elevation="0">
+        <v-card-text class="pa-4 text-center">
+          <div class="d-flex justify-space-between align-center mb-4">
+            <h3 class="text-h6 font-weight-bold">Escanear Producto</h3>
+            <v-btn icon="mdi-close" variant="text" size="small" @click="showScanner = false" />
+          </div>
+          
+          <div id="inventory-scanner-reader" class="scanner-reader rounded-lg overflow-hidden"></div>
+          
+          <div class="mt-4">
+            <p v-if="scannerError" class="text-error text-caption">{{ scannerError }}</p>
+            <p v-else class="text-medium-emphasis text-caption">
+              Apunta la cámara al código de barras del producto para buscarlo en el inventario.
+            </p>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
     <v-dialog v-model="showAdjustDialog" max-width="460">
-      <v-card>
+      <v-card class="border-0 rounded-xl" elevation="0" style="background-color: var(--neo-bg);">
         <div class="pa-6 d-flex align-center">
           <div class="neo-circle-sm mr-3">
             <v-icon color="primary">mdi-tune</v-icon>
@@ -543,10 +719,34 @@ function colorTipoMovimiento(tipo: string): string {
 
 <style scoped>
 .inventory-stat-card {
-  border-radius: var(--neo-radius-sm);
+  border-radius: var(--neo-radius);
+  box-shadow: var(--neo-raised);
+  background-color: var(--neo-bg);
+  padding: 16px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+.v-theme--dark .inventory-stat-card {
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.inventory-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--neo-raised-lg);
+}
+
+.scanner-reader {
+  width: 100%;
+  border-radius: var(--neo-radius);
+  overflow: hidden;
   box-shadow: var(--neo-inset);
-  background-color: var(--neo-bg-alt);
-  padding: 14px;
+  background-color: #000;
+}
+.scanner-card {
+  background-color: var(--neo-bg) !important;
+  box-shadow: var(--neo-raised-lg) !important;
 }
 
 .stock-preview-card {

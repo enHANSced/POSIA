@@ -1,48 +1,37 @@
 # pos-retail-pwa
 
-This template should help get you started developing with Vue 3 in Vite.
+Frontend de POSIA — aplicación Vue 3 + Vite + Vuetify para el sistema POS retail con IA.
 
-## Recommended IDE Setup
+> Para la documentación completa del proyecto ve al [README principal](../README.md).
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+## IDE Recomendado
 
-## Recommended Browser Setup
+[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (desactiva Vetur si lo tienes instalado).
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+## Configuración
 
-## Type Support for `.vue` Imports in TS
+Crea un archivo `.env` con las variables de entorno requeridas:
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+```env
+VITE_SUPABASE_URL=tu_url_de_supabase
+VITE_SUPABASE_ANON_KEY=tu_anon_key
+```
 
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
+## Comandos
 
 ```sh
+# Instalar dependencias
 npm install
-```
 
-### Compile and Hot-Reload for Development
-
-```sh
+# Servidor de desarrollo con hot reload
 npm run dev
-```
 
-### Type-Check, Compile and Minify for Production
+# Verificación de tipos TypeScript
+npm run type-check
 
-```sh
+# Build de producción
 npm run build
-```
 
-### Lint with [ESLint](https://eslint.org/)
-
-```sh
+# Linting
 npm run lint
 ```
